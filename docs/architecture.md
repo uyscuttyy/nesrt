@@ -2,11 +2,22 @@
 
 ## On-chain (`programs/vault/`)
 - `VaultState` PDA, seeds `[b"vault", tslax_mint]`: admin, tslax_mint,
-  receipt_mint, kamino_market, kamino_reserve, bump.
-- Receipt mint `yTSLAx`: vault program is mint authority, minted 1:1 on
-  deposit, burned on withdraw (accounting only, hidden in UI).
+  receipt_mint, kamino_market, kamino_reserve, kamino_ctoken_mint,
+  authority_bump, state_bump.
+- Vault authority PDA, seeds `[b"vault-authority", tslax_mint]`: owns the
+  vault TSLAx + cToken custody accounts, is yTSLAx mint authority, and signs
+  the Kamino CPI via `authority_seeds()`.
+- PDAs: receipt mint `[b"receipt-mint", tslax_mint]` (6 decimals),
+  TSLAx custody `[b"vault-tslax", tslax_mint]`, cToken custody
+  `[b"vault-ctoken", tslax_mint]`.
 - `initialize_vault` (Phase 3), `deposit` + Kamino supply CPI (Phase 4),
   `withdraw` + Kamino redeem CPI (Phase 5).
+- Accounting: yTSLAx minted 1:1 against cTokens received on deposit, burned
+  on withdraw; redeem converts the same cTokens back to TSLAx plus interest.
+- Kamino CPI built manually (no klend crate): program
+  KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD, deposit discriminator
+  a9c91e7e06cd6644 + u64 amount, redeem discriminator
+  ea75b57db98edc1d + u64 collateral amount.
 
 ## Setup (`setup/setup_devnet.ts`, Phase 2)
 Creates TSLAx mint, mints admin supply, creates Kamino market + TSLAx

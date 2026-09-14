@@ -1,0 +1,25 @@
+# Deps
+node_modules/
+.next/
+out/
+dist/
+target/
+.anchor/
+artifacts/
+
+# Keys & secrets (NEVER commit)
+*.json
+!package.json
+!tsconfig.json
+.env
+.env.local
+keypairs/
+*.pem
+
+# Anchor
+.DS_Store
+test-ledger/
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,3 +1,10 @@
 {
-  "admin": "J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3"
+  "admin": "J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3",
+  "tslaxMint": "4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA",
+  "adminAta": "5okEhbtHsJ3uGabfTMzTdArVrY8Q2BD7LDcYTyFK8KVh",
+  "market": "GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG",
+  "reserve": "24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8",
+  "reserveConfigured": true,
+  "ctokenMint": "7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU",
+  "seedDeposited": true
 }

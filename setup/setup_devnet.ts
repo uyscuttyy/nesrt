@@ -38,6 +38,7 @@ import {
   address,
   appendTransactionMessageInstructions,
   createKeyPairSignerFromBytes,
+  createNoopSigner,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
   createTransactionMessage,
@@ -58,14 +59,18 @@ import {
   KaminoManager,
   lendingMarketAuthPda,
   PROGRAM_ID as KLEND_PROGRAM_ID,
-  PythConfiguration,
   Reserve,
-  ReserveConfig,
-  ScopeConfiguration,
-  SwitchboardConfiguration,
-  TokenInfo,
   DEFAULT_RECENT_SLOT_DURATION_MS,
 } from "@kamino-finance/klend-sdk";
+// NB: the package root re-exports the *kvault* ReserveConfig/TokenInfo under
+// these names, so import the klend codegen types by path for reserve config.
+import { ReserveConfig } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/ReserveConfig.js";
+import { TokenInfo } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/TokenInfo.js";
+import { PythConfiguration } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/PythConfiguration.js";
+import { ScopeConfiguration } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/ScopeConfiguration.js";
+import { SwitchboardConfiguration } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/SwitchboardConfiguration.js";
+import { BorrowRateCurve } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/BorrowRateCurve.js";
+import { CurvePoint } from "@kamino-finance/klend-sdk/dist/@codegen/klend/types/CurvePoint.js";
 import BN from "bn.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,8 +92,9 @@ type DevnetState = {
   market?: string;
   reserve?: string;
   reserveKeypair?: number[];
+  reserveConfigured?: boolean;
   ctokenMint?: string;
-  seedDepositSig?: string;
+  seedDeposited?: boolean;
 };
 
 function loadState(): DevnetState {
@@ -111,21 +117,20 @@ async function sendIxs(
   feePayer: TransactionSigner,
   ixs: Instruction[],
   label: string
-): Promise<string> {
+): Promise<void> {
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-  const message = appendTransactionMessageInstructions(
-    setTransactionMessageLifetimeUsingBlockhash(
-      setTransactionMessageFeePayerSigner(createTransactionMessage({ version: 0 }), feePayer),
-      latestBlockhash
-    ),
-    ixs
-  );
+  let message = createTransactionMessage({ version: 0 });
+  message = setTransactionMessageFeePayerSigner(feePayer, message);
+  message = setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, message);
+  message = appendTransactionMessageInstructions(ixs, message);
   const signed = await signTransactionMessageWithSigners(message);
-  const sig = await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(signed, {
+  // NB: this kit version's send-and-confirm factory returns void, so there is
+  // no signature to record. It throws on simulation/confirm failure, and each
+  // step is verified by re-reading on-chain state afterwards.
+  await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(signed, {
     commitment: "confirmed",
   });
-  console.log(`${label}: ${String(sig)}`);
-  return String(sig);
+  console.log(`${label} confirmed`);
 }
 
 async function main(): Promise<void> {
@@ -179,9 +184,7 @@ async function main(): Promise<void> {
     saveState(state);
   }
 
-  // ---- 3. TSLAx reserve ----
-  if (!state.reserve) {
-    console.log("building TSLAx reserve config (supply-only, placeholder oracle)...");
+  function buildTargetConfig() {
     const base = defaultReserveConfig();
     const tokenInfo = new TokenInfo({
       // @ts-expect-error spread of decoded class instance into fields
@@ -201,7 +204,7 @@ async function main(): Promise<void> {
         twapAggregator: NULL_ADDRESS,
       }),
     });
-    const target = new ReserveConfig({
+    return new ReserveConfig({
       // @ts-expect-error spread of decoded class instance into fields
       ...base,
       status: 0, // Active
@@ -209,20 +212,47 @@ async function main(): Promise<void> {
       liquidationThresholdPct: 0,
       depositLimit: new BN("1000000000000000"), // 1e9 TSLAx in base units
       borrowLimit: new BN(0),
+      borrowFactorPct: new BN(100), // minimum accepted by on-chain validation
+      // 11-point curve mirroring Kamino's example: first point at 0
+      // utilization, last at 10000 bps, ascending (enforced on-chain).
+      borrowRateCurve: new BorrowRateCurve({
+        points: [
+          new CurvePoint({ utilizationRateBps: 0, borrowRateBps: 100 }),
+          new CurvePoint({ utilizationRateBps: 7000, borrowRateBps: 400 }),
+          new CurvePoint({ utilizationRateBps: 9100, borrowRateBps: 600 }),
+          new CurvePoint({ utilizationRateBps: 9300, borrowRateBps: 1000 }),
+          new CurvePoint({ utilizationRateBps: 9500, borrowRateBps: 2000 }),
+          new CurvePoint({ utilizationRateBps: 9700, borrowRateBps: 4000 }),
+          new CurvePoint({ utilizationRateBps: 10000, borrowRateBps: 8000 }),
+          new CurvePoint({ utilizationRateBps: 10000, borrowRateBps: 8000 }),
+          new CurvePoint({ utilizationRateBps: 10000, borrowRateBps: 8000 }),
+          new CurvePoint({ utilizationRateBps: 10000, borrowRateBps: 8000 }),
+          new CurvePoint({ utilizationRateBps: 10000, borrowRateBps: 8000 }),
+        ],
+      }),
       tokenInfo,
     });
+  }
 
-    const assetConfig = new AssetReserveConfigCli(
-      address(state.tslaxMint),
+  function assetConfigFor(target: ReserveConfig) {
+    return new AssetReserveConfigCli(
+      address(state.tslaxMint!),
       address(TOKEN_PROGRAM_ID.toBase58()),
       target
     );
-    const reserveKeypair = await generateKeyPairSigner();
-    const { createReserveIxs, configUpdateIxs } = await kamino.addAssetToMarketIxs({
+  }
+
+  // ---- 3. TSLAx reserve account ----
+  if (!state.reserve) {
+    // Generate via web3.js so the secret stays available for this run only;
+    // it is never written to state (block 3b only needs the address).
+    const rk = Keypair.generate();
+    const reserveKeypair = await createKeyPairSignerFromBytes(rk.secretKey);
+    const { createReserveIxs } = await kamino.addAssetToMarketIxs({
       admin: adminSigner,
-      adminLiquiditySource: address(state.adminAta),
-      marketAddress: address(state.market),
-      assetConfig,
+      adminLiquiditySource: address(state.adminAta!),
+      marketAddress: address(state.market!),
+      assetConfig: assetConfigFor(buildTargetConfig()),
       reserveKeypair,
     });
 
@@ -232,8 +262,22 @@ async function main(): Promise<void> {
       console.log("reserve account already exists, skipping creation");
     }
     state.reserve = reserveKeypair.address;
-    state.reserveKeypair = Array.from(reserveKeypair.keyPair.privateKey as unknown as Iterable<number>);
+    delete (state as { reserveKeypair?: unknown }).reserveKeypair;
     saveState(state);
+  }
+
+  // ---- 3b. TSLAx reserve config (resumable: diffed against on-chain state) ----
+  if (!state.reserveConfigured) {
+    console.log("diffing reserve config against on-chain state...");
+    const { configUpdateIxs } = await kamino.addAssetToMarketIxs({
+      admin: adminSigner,
+      adminLiquiditySource: address(state.adminAta!),
+      marketAddress: address(state.market!),
+      assetConfig: assetConfigFor(buildTargetConfig()),
+      // Reserve already exists; only its address is used for the config diff.
+      // A noop signer suffices because updates are authorized by the market admin.
+      reserveKeypair: createNoopSigner(address(state.reserve!)),
+    });
 
     const blocked = configUpdateIxs.filter((u) => u.requiresGlobalAdmin);
     if (blocked.length > 0) {
@@ -245,11 +289,13 @@ async function main(): Promise<void> {
     for (let i = 0; i < configUpdateIxs.length; i++) {
       await sendIxs(rpc, rpcSubscriptions, adminSigner, [configUpdateIxs[i].ix], `config-update ${i + 1}/${configUpdateIxs.length}`);
     }
+    state.reserveConfigured = true;
+    saveState(state);
     console.log(`reserve: ${state.reserve}`);
   }
 
   // ---- 4. Seed liquidity ----
-  if (!state.seedDepositSig) {
+  if (!state.seedDeposited) {
     const reserveAddr = address(state.reserve!);
     // biome-ignore lint: runtime shape differs between SDK versions
     const fetched = (await (Reserve as unknown as { fetch: Function }).fetch(rpc, reserveAddr, KLEND_PROGRAM_ID)) as any;
@@ -283,7 +329,8 @@ async function main(): Promise<void> {
         instructionSysvarAccount: SYSVAR_INSTRUCTIONS,
       }
     );
-    state.seedDepositSig = await sendIxs(rpc, rpcSubscriptions, adminSigner, [depositIx], "seed-deposit");
+    await sendIxs(rpc, rpcSubscriptions, adminSigner, [depositIx], "seed-deposit");
+    state.seedDeposited = true;
     saveState(state);
   }
 

@@ -2,7 +2,12 @@
 
 ## Status
 - [x] Phase 1: Project init + git setup.
-- [~] Phase 2: Devnet env script written + validated to funding gate; BLOCKED on admin SOL (0 balance, faucet throttled, slow retry loop running). Fund J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3 to unblock.
+- [x] Phase 2: Devnet env live (mint, market, reserve Active, 100k seed).
+  TSLAx 4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA, market
+  GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG, reserve
+  24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8, cToken
+  7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU. Exchange rate 1.0, APY 0
+  (no borrows possible without an oracle; mechanics fully real).
 - [~] Phase 3: Vault state + PDAs + initialize written; build verification waits on Anchor 0.30.1 install.
 - [ ] Phases 4-5: Deposit/withdraw CPI (discriminators captured, design settled).
 - [ ] Phase 6: Contract tests.

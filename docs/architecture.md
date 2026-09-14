@@ -28,6 +28,9 @@ reserve, seeds liquidity. Outputs addresses to `.env`.
 - `/app` dashboard (The Sanctuary): wallet connect, TSLAx balance,
   deposit input, withdraw, live balance = yTSLAx balance x Kamino
   cToken exchange rate (never faked).
+- Read path: `KaminoMarket.load` fails on oracle-less reserves, so the
+  frontend decodes the reserve account directly (codegen `Reserve.fetch`)
+  and computes rate = totalAvailableAmount / cToken supply.
 
 ## Wallet environment note
 Phone testing happens inside the Nimiq Pay mini-app browser. Whether that

@@ -3,10 +3,10 @@ seeds = false
 skip-lint = false
 
 [programs.devnet]
-vault = "Vau1tTSLAxYieldVault11111111111111111111111"
+vault = "DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB"
 
 [programs.localnet]
-vault = "Vau1tTSLAxYieldVault11111111111111111111111"
+vault = "DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB"
 
 [provider]
 cluster = "devnet"

@@ -18,9 +18,9 @@ pub mod vault {
     use super::*;
 
     /// Initialize vault state for a given TSLAx mint and Kamino reserve.
-    /// Creates the yTSLAx receipt mint (authority = vault authority PDA) and
-    /// the vault's TSLAx + cToken custody accounts.
-    pub fn initialize_vault(ctx: Context<InitializeVault>) -> Result<()> {
+    /// Split from account creation (initialize_accounts) to keep each
+    /// instruction frame under the 4 KiB stack limit.
+    pub fn initialize_state(ctx: Context<InitializeState>) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
         state.admin = ctx.accounts.admin.key();
         state.tslax_mint = ctx.accounts.tslax_mint.key();
@@ -31,11 +31,37 @@ pub mod vault {
         state.authority_bump = ctx.bumps.vault_authority;
         state.state_bump = ctx.bumps.vault_state;
         msg!(
-            "vault initialized: tslax={} market={} reserve={}",
+            "vault state initialized: tslax={} market={} reserve={}",
             state.tslax_mint,
             state.kamino_market,
             state.kamino_reserve
         );
+        Ok(())
+    }
+
+    /// Create the yTSLAx receipt mint (authority = vault authority PDA).
+    /// Admin-gated via state.
+    pub fn initialize_mint(_ctx: Context<InitializeMint>) -> Result<()> {
+        msg!("vault receipt mint initialized");
+        Ok(())
+    }
+
+    /// Create the vault's TSLAx + cToken custody accounts. Admin-gated via
+    /// state; mints verified against state in-handler to keep try_accounts
+    /// small.
+    pub fn init_custody(ctx: Context<InitializeCustody>) -> Result<()> {
+        let state = &ctx.accounts.vault_state;
+        require_keys_eq!(
+            ctx.accounts.tslax_mint.key(),
+            state.tslax_mint,
+            VaultError::WrongLiquidityMint
+        );
+        require_keys_eq!(
+            ctx.accounts.ctoken_mint.key(),
+            state.kamino_ctoken_mint,
+            VaultError::WrongCollateralMint
+        );
+        msg!("vault custody accounts initialized");
         Ok(())
     }
 
@@ -249,19 +275,22 @@ impl VaultState {
 }
 
 #[derive(Accounts)]
-pub struct InitializeVault<'info> {
+pub struct InitializeState<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
     /// The mock TSLAx mint created in Phase 2.
-    pub tslax_mint: Account<'info, Mint>,
+    pub tslax_mint: Box<Account<'info, Mint>>,
     /// CHECK: recorded for the deposit/withdraw CPI; owned by the KLend
     /// program on devnet. Validated by use, not by type.
     pub kamino_market: UncheckedAccount<'info>,
     /// CHECK: recorded for the deposit/withdraw CPI. Validated by use.
     pub kamino_reserve: UncheckedAccount<'info>,
     /// The Kamino cToken mint of the TSLAx reserve (Phase 2 output).
-    pub ctoken_mint: Account<'info, Mint>,
+    pub ctoken_mint: Box<Account<'info, Mint>>,
+    /// The yTSLAx receipt mint (created by initialize_accounts).
+    /// CHECK: recorded as state.receipt_mint; existence enforced at use.
+    pub receipt_mint: UncheckedAccount<'info>,
 
     #[account(
         init,
@@ -280,35 +309,86 @@ pub struct InitializeVault<'info> {
     )]
     pub vault_authority: UncheckedAccount<'info>,
 
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeMint<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.state_bump,
+        constraint = vault_state.admin == admin.key(),
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+    /// CHECK: PDA signer, seeds verified against vault state.
+    #[account(
+        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
     #[account(
         init,
         payer = admin,
-        seeds = [b"receipt-mint", tslax_mint.key().as_ref()],
+        seeds = [b"receipt-mint", vault_state.tslax_mint.as_ref()],
         bump,
         mint::decimals = 6,
         mint::authority = vault_authority,
     )]
-    pub receipt_mint: Account<'info, Mint>,
+    pub receipt_mint: Box<Account<'info, Mint>>,
+
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeCustody<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.state_bump,
+        constraint = vault_state.admin == admin.key(),
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+    /// CHECK: PDA signer, seeds verified against vault state.
+    #[account(
+        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    /// CHECK: key verified against state in the handler.
+    pub tslax_mint: UncheckedAccount<'info>,
+    /// CHECK: key verified against state in the handler.
+    pub ctoken_mint: UncheckedAccount<'info>,
 
     #[account(
         init,
         payer = admin,
-        seeds = [b"vault-tslax", tslax_mint.key().as_ref()],
+        seeds = [b"vault-tslax", vault_state.tslax_mint.as_ref()],
         bump,
         token::mint = tslax_mint,
         token::authority = vault_authority,
     )]
-    pub vault_tslax_account: Account<'info, TokenAccount>,
+    pub vault_tslax_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         init,
         payer = admin,
-        seeds = [b"vault-ctoken", tslax_mint.key().as_ref()],
+        seeds = [b"vault-ctoken", vault_state.tslax_mint.as_ref()],
         bump,
         token::mint = ctoken_mint,
         token::authority = vault_authority,
     )]
-    pub vault_ctoken_account: Account<'info, TokenAccount>,
+    pub vault_ctoken_account: Box<Account<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -339,7 +419,7 @@ pub struct Deposit<'info> {
         constraint = user_tslax.mint == vault_state.tslax_mint,
         constraint = user_tslax.owner == user.key(),
     )]
-    pub user_tslax: Account<'info, TokenAccount>,
+    pub user_tslax: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -347,7 +427,7 @@ pub struct Deposit<'info> {
         bump,
         constraint = vault_tslax.mint == vault_state.tslax_mint,
     )]
-    pub vault_tslax: Account<'info, TokenAccount>,
+    pub vault_tslax: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -355,7 +435,7 @@ pub struct Deposit<'info> {
         bump,
         constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
     )]
-    pub vault_ctoken: Account<'info, TokenAccount>,
+    pub vault_ctoken: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -363,18 +443,20 @@ pub struct Deposit<'info> {
         bump,
         constraint = receipt_mint.key() == vault_state.receipt_mint,
     )]
-    pub receipt_mint: Account<'info, Mint>,
+    pub receipt_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
         constraint = user_receipt.mint == vault_state.receipt_mint,
         constraint = user_receipt.owner == user.key(),
     )]
-    pub user_receipt: Account<'info, TokenAccount>,
+    pub user_receipt: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: key must equal vault_state.kamino_market (verified in handler).
     pub kamino_market: UncheckedAccount<'info>,
     /// CHECK: key must equal vault_state.kamino_reserve (verified in handler).
+    /// Mut: Kamino updates reserve liquidity on supply/redeem.
+    #[account(mut)]
     pub kamino_reserve: UncheckedAccount<'info>,
     /// CHECK: derived PDA [b"lma", market] under the KLend program id
     /// (verified in handler).
@@ -385,6 +467,8 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
     /// CHECK: key must equal vault_state.kamino_ctoken_mint (verified in handler).
+    /// Mut: Kamino mints/burns cTokens on supply/redeem.
+    #[account(mut)]
     pub reserve_collateral_mint: UncheckedAccount<'info>,
     /// CHECK: the KLend program on devnet (key verified in handler).
     pub kamino_program: UncheckedAccount<'info>,
@@ -419,7 +503,7 @@ pub struct Withdraw<'info> {
         constraint = user_tslax.mint == vault_state.tslax_mint,
         constraint = user_tslax.owner == user.key(),
     )]
-    pub user_tslax: Account<'info, TokenAccount>,
+    pub user_tslax: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -427,7 +511,7 @@ pub struct Withdraw<'info> {
         bump,
         constraint = vault_tslax.mint == vault_state.tslax_mint,
     )]
-    pub vault_tslax: Account<'info, TokenAccount>,
+    pub vault_tslax: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -435,7 +519,7 @@ pub struct Withdraw<'info> {
         bump,
         constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
     )]
-    pub vault_ctoken: Account<'info, TokenAccount>,
+    pub vault_ctoken: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -443,18 +527,20 @@ pub struct Withdraw<'info> {
         bump,
         constraint = receipt_mint.key() == vault_state.receipt_mint,
     )]
-    pub receipt_mint: Account<'info, Mint>,
+    pub receipt_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
         constraint = user_receipt.mint == vault_state.receipt_mint,
         constraint = user_receipt.owner == user.key(),
     )]
-    pub user_receipt: Account<'info, TokenAccount>,
+    pub user_receipt: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: key must equal vault_state.kamino_market (verified in handler).
     pub kamino_market: UncheckedAccount<'info>,
     /// CHECK: key must equal vault_state.kamino_reserve (verified in handler).
+    /// Mut: Kamino updates reserve liquidity on supply/redeem.
+    #[account(mut)]
     pub kamino_reserve: UncheckedAccount<'info>,
     /// CHECK: derived PDA [b"lma", market] under the KLend program id
     /// (verified in handler).
@@ -465,6 +551,8 @@ pub struct Withdraw<'info> {
     #[account(mut)]
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
     /// CHECK: key must equal vault_state.kamino_ctoken_mint (verified in handler).
+    /// Mut: Kamino mints/burns cTokens on supply/redeem.
+    #[account(mut)]
     pub reserve_collateral_mint: UncheckedAccount<'info>,
     /// CHECK: the KLend program on devnet (key verified in handler).
     pub kamino_program: UncheckedAccount<'info>,
@@ -547,7 +635,7 @@ pub mod kamino {
         Instruction {
             program_id: PROGRAM_ID,
             accounts: vec![
-                AccountMeta::new(*owner, true),
+                AccountMeta::new_readonly(*owner, true),
                 AccountMeta::new(*reserve, false),
                 AccountMeta::new_readonly(*market, false),
                 AccountMeta::new_readonly(*market_authority, false),
@@ -589,7 +677,7 @@ pub mod kamino {
         Instruction {
             program_id: PROGRAM_ID,
             accounts: vec![
-                AccountMeta::new(*owner, true),
+                AccountMeta::new_readonly(*owner, true),
                 AccountMeta::new_readonly(*market, false),
                 AccountMeta::new(*reserve, false),
                 AccountMeta::new_readonly(*market_authority, false),

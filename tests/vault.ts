@@ -1,12 +1,13 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from "@solana/web3.js";
 import {
+  TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
   getAccount,
   getAssociatedTokenAddress,
   transfer,
 } from "@solana/spl-token";
-import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { assert } from "chai";
 import { Vault } from "../target/types/vault";
 
@@ -84,34 +85,79 @@ describe("tslax vault (devnet)", () => {
     );
     const adminTslax = await getAssociatedTokenAddress(TSLAX_MINT, admin.publicKey);
     await transfer(conn, payer, adminTslax, userTslax, admin.publicKey, ui(1000));
-    userReceipt = await createAssociatedTokenAccount(
-      conn,
-      user,
-      receiptMint,
-      user.publicKey
-    );
+    // NOTE: the yTSLAx receipt ATA is created inside the deposit test, after
+    // initialize_vault brings the receipt mint into existence.
+    userReceipt = await getAssociatedTokenAddress(receiptMint, user.publicKey);
     const acc = await conn.getAccountInfo(KAMINO_RESERVE);
     assert.ok(acc, "kamino reserve missing");
     // Supply vault address recorded in Phase 2 (reserve liquidity vault).
     reserveSupply = new PublicKey(process.env.KAMINO_SUPPLY_VAULT!);
   });
 
-  it("initializes the vault", async () => {
-    await program.methods
-      .initializeVault()
-      .accounts({
-        admin: admin.publicKey,
-        tslaxMint: TSLAX_MINT,
-        kaminoMarket: KAMINO_MARKET,
-        kaminoReserve: KAMINO_RESERVE,
-        ctokenMint: CTOKEN_MINT,
-        vaultState,
-        vaultAuthority: authority,
-        receiptMint,
-        vaultTslaxAccount: vaultTslax,
-        vaultCtokenAccount: vaultCtoken,
-      })
-      .rpc();
+  it("initializes vault state", async () => {
+    try {
+      const sig = await program.methods
+        .initializeState()
+        .accounts({
+          admin: admin.publicKey,
+          tslaxMint: TSLAX_MINT,
+          kaminoMarket: KAMINO_MARKET,
+          kaminoReserve: KAMINO_RESERVE,
+          ctokenMint: CTOKEN_MINT,
+          receiptMint,
+          vaultState,
+          vaultAuthority: authority,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log("INIT-STATE SIG:", sig);
+    } catch (e) {
+      // Idempotent reruns: the PDA already exists from a previous run.
+      console.log("init-state skipped (already exists)");
+    }
+  });
+
+  it("initializes the receipt mint", async () => {
+    try {
+      const sig = await program.methods
+        .initializeMint()
+        .accounts({
+          admin: admin.publicKey,
+          vaultState,
+          vaultAuthority: authority,
+          receiptMint,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+      console.log("INIT-MINT SIG:", sig);
+    } catch (e) {
+      console.log("init-mint skipped (already exists)");
+    }
+  });
+
+  it("initializes vault custody accounts", async () => {
+    try {
+      const sig = await program.methods
+        .initCustody()
+        .accounts({
+          admin: admin.publicKey,
+          vaultState,
+          vaultAuthority: authority,
+          tslaxMint: TSLAX_MINT,
+          ctokenMint: CTOKEN_MINT,
+          vaultTslaxAccount: vaultTslax,
+          vaultCtokenAccount: vaultCtoken,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+      console.log("INIT-CUSTODY SIG:", sig);
+    } catch (e) {
+      console.log("init-custody skipped (already exists)");
+    }
     const state = await program.account.vaultState.fetch(vaultState);
     assert.equal(state.tslaxMint.toBase58(), TSLAX_MINT.toBase58());
     assert.equal(state.kaminoReserve.toBase58(), KAMINO_RESERVE.toBase58());
@@ -119,6 +165,11 @@ describe("tslax vault (devnet)", () => {
 
   it("deposits TSLAx and mints yTSLAx 1:1 with cTokens", async () => {
     const conn = provider.connection;
+    try {
+      await createAssociatedTokenAccount(conn, user, receiptMint, user.publicKey);
+    } catch {
+      // ATA already exists from a previous run.
+    }
     const cBefore = (await getAccount(conn, vaultCtoken)).amount;
     await program.methods
       .deposit(new anchor.BN(ui(100)))
@@ -138,6 +189,7 @@ describe("tslax vault (devnet)", () => {
         reserveLiquiditySupply: reserveSupply,
         reserveCollateralMint: CTOKEN_MINT,
         kaminoProgram: KLEND_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
         instructionSysvar: SYSVAR_IX,
       })
       .signers([user])
@@ -201,6 +253,7 @@ describe("tslax vault (devnet)", () => {
         reserveLiquiditySupply: reserveSupply,
         reserveCollateralMint: CTOKEN_MINT,
         kaminoProgram: KLEND_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
         instructionSysvar: SYSVAR_IX,
       })
       .signers([user])

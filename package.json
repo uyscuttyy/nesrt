@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "setup:devnet": "ts-node setup/setup_devnet.ts",
+    "setup:devnet": "tsx setup/setup_devnet.ts",
+    "build": "anchor build",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
     "test": "anchor test --provider.cluster devnet"
   },
   "devDependencies": {

@@ -18,6 +18,7 @@ keypairs/
 !package-lock.json
 !tsconfig.json
 !setup/output/*.json
+!app/src/idl/*.json
 
 # Anchor
 .DS_Store

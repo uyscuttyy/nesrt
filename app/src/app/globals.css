@@ -186,6 +186,87 @@ a {
   margin-top: 2rem;
 }
 
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+@media (max-width: 700px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--band);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card strong {
+  font-size: 1.5rem;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.accent-card strong {
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1;
+  min-width: 12rem;
+  background: var(--band);
+  border: 1px solid #27272a;
+  border-radius: 999px;
+  color: var(--text);
+  padding: 0 1.25rem;
+  height: 2.75rem;
+  font-size: 1rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  padding: 0 1.5rem;
+  height: 2.75rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.ghost:disabled,
+.cta:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.error {
+  color: #f87171;
+  margin-top: 1.5rem;
+}
+
 .dot {
   display: inline-block;
   width: 0.5rem;

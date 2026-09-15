@@ -1,23 +1,73 @@
 :root {
-  --bg: #09090b;
-  --band: #101013;
-  --text: #fafafa;
-  --muted: #a1a1aa;
-  --accent: #34d399;
-  --accent-ink: #052e22;
+  /* Light mode (default) */
+  --bg: #fafafa;
+  --bg-elevated: #ffffff;
+  --band: #f3f0f8;
+  --band-hover: #e8e0f3;
+  --text: #1a1a2e;
+  --muted: #6b6b7b;
+  --muted-strong: #4a4a5a;
+  --accent: #a855f7;
+  --accent-hover: #9333ea;
+  --accent-ink: #ffffff;
+  --accent-soft: #f3e8ff;
+  --border: #e4dbf5;
+  --border-strong: #d8cbf0;
+  --card-bg: #ffffff;
+  --input-bg: #ffffff;
+  --overlay: rgba(26, 26, 46, 0.08);
+  --shadow-sm: 0 1px 2px rgba(26, 26, 46, 0.04);
+  --shadow-md: 0 4px 12px rgba(26, 26, 46, 0.08);
+  --shadow-lg: 0 8px 24px rgba(26, 26, 46, 0.12);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-full: 999px;
+  --focus-ring: 0 0 0 3px rgba(168, 85, 247, 0.35);
+}
+
+[data-theme="dark"] {
+  --bg: #0a0a14;
+  --bg-elevated: #11111f;
+  --band: #1a1426;
+  --band-hover: #221a33;
+  --text: #f5f0fa;
+  --muted: #9a90a8;
+  --muted-strong: #b8a8d0;
+  --accent: #c084fc;
+  --accent-hover: #d8b4fe;
+  --accent-ink: #1a1a2e;
+  --accent-soft: #2e1a4a;
+  --border: #3d2e52;
+  --border-strong: #4a3568;
+  --card-bg: #161024;
+  --input-bg: #1a122a;
+  --overlay: rgba(245, 240, 250, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
 }
 
 .wrap {
@@ -26,12 +76,12 @@ body {
   padding: 0 1.5rem;
 }
 
-a {
-  color: inherit;
-}
-
 .muted {
   color: var(--muted);
+}
+
+.muted-strong {
+  color: var(--muted-strong);
 }
 
 .mono {
@@ -51,14 +101,16 @@ a {
 .brand {
   font-weight: 650;
   text-decoration: none;
+  font-size: 1.125rem;
 }
 
 .badge {
   font-size: 0.75rem;
   color: var(--muted);
-  border: 1px solid #27272a;
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
   padding: 0.25rem 0.75rem;
+  background: var(--card-bg);
 }
 
 .hero {
@@ -72,20 +124,23 @@ a {
   font-size: 0.8rem;
   color: var(--muted);
   text-transform: uppercase;
+  font-weight: 500;
 }
 
 .hero h1 {
-  font-size: 3.25rem;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
   line-height: 1.05;
   margin: 1rem 0;
   letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 .lede {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   color: var(--muted);
   max-width: 36rem;
   margin: 0 auto;
+  font-weight: 400;
 }
 
 .cta-row {
@@ -97,12 +152,35 @@ a {
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
-  padding: 0.75rem 1.75rem;
-  border-radius: 999px;
+  padding: 0.875rem 2rem;
+  border-radius: var(--radius-full);
   text-decoration: none;
   border: none;
   cursor: pointer;
   font-size: 1rem;
+  transition: background 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.cta:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.cta:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.cta:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .fine {
@@ -115,12 +193,18 @@ a {
   background: var(--band);
   padding-top: 4rem;
   padding-bottom: 4rem;
+  transition: background-color 0.25s ease;
+}
+
+.band:hover {
+  background: var(--band-hover);
 }
 
 .band h2,
 .facts h2 {
   font-size: 1.5rem;
   margin: 0 0 2rem;
+  font-weight: 600;
 }
 
 .steps {
@@ -139,14 +223,39 @@ a {
   }
 }
 
+.step {
+  text-align: left;
+  padding: 1.5rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.step:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
 .step-n {
+  display: inline-block;
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
 }
 
 .step h3 {
   margin: 0.5rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.step p {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.6;
 }
 
 .facts {
@@ -164,16 +273,23 @@ a {
   color: var(--muted);
   font-size: 0.85rem;
   margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .facts dd {
   margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
 }
 
 .footer {
   padding-top: 2rem;
   padding-bottom: 3rem;
   font-size: 0.85rem;
+  border-top: 1px solid var(--border);
+  margin-top: 2rem;
 }
 
 .sanctuary {
@@ -184,6 +300,7 @@ a {
 .sanctuary h1 {
   font-size: 2rem;
   margin-top: 2rem;
+  font-weight: 600;
 }
 
 .cards {
@@ -200,25 +317,45 @@ a {
 }
 
 .card {
-  background: var(--band);
-  border-radius: 1rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
 }
 
 .card strong {
   font-size: 1.5rem;
+  font-weight: 600;
 }
 
 .label {
   color: var(--muted);
   font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.accent-card {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .accent-card strong {
   color: var(--accent);
+}
+
+.accent-card .label {
+  color: var(--accent);
+  opacity: 0.8;
 }
 
 .actions {
@@ -226,45 +363,69 @@ a {
   gap: 0.75rem;
   margin-top: 2rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .input {
   flex: 1;
   min-width: 12rem;
-  background: var(--band);
-  border: 1px solid #27272a;
-  border-radius: 999px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
   color: var(--text);
   padding: 0 1.25rem;
   height: 2.75rem;
   font-size: 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input::placeholder {
+  color: var(--muted);
 }
 
 .ghost {
   background: transparent;
   color: var(--text);
-  border: 1px solid #3f3f46;
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
   padding: 0 1.5rem;
   height: 2.75rem;
   font-size: 0.95rem;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--band);
+  border-color: var(--border-strong);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--band-hover);
+}
+
+.ghost:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .ghost:disabled,
 .cta:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .error {
   color: #f87171;
   margin-top: 1.5rem;
+  font-size: 0.9rem;
 }
 
 .dot {
@@ -274,27 +435,107 @@ a {
   border-radius: 999px;
   background: var(--accent);
   margin-right: 0.5rem;
+  flex-shrink: 0;
 }
 
-/* Wallet adapter button restyle to match the theme */
+.dot-live {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+}
+
+.theme-toggle {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  background: var(--band);
+}
+
+.theme-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.theme-toggle svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  stroke: currentColor;
+}
+
+/* Wallet adapter restyle to match theme */
 .wallet-adapter-button {
   background: var(--accent) !important;
   color: var(--accent-ink) !important;
-  border-radius: 999px !important;
+  border-radius: var(--radius-full) !important;
   font-weight: 600 !important;
   font-size: 0.95rem !important;
   padding: 0 1.5rem !important;
   height: 2.75rem !important;
+  border: none !important;
+  transition: background 0.15s ease !important;
 }
 
 .wallet-adapter-button:not([disabled]):hover {
-  background: #6ee7b7 !important;
+  background: var(--accent-hover) !important;
+}
+
+.wallet-adapter-button:focus-visible {
+  outline: none !important;
+  box-shadow: var(--focus-ring) !important;
 }
 
 .wallet-adapter-modal-wrapper {
-  background: var(--band) !important;
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
 }
 
 .wallet-adapter-modal-button-close {
-  background: #27272a !important;
+  background: var(--band) !important;
+  color: var(--text) !important;
+}
+
+.wallet-adapter-dropdown-list {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.wallet-adapter-dropdown-list-item {
+  color: var(--text) !important;
+}
+
+.wallet-adapter-dropdown-list-item:hover {
+  background: var(--band) !important;
+}
+
+/* Ensure wallet adapter text inputs match theme */
+.wallet-adapter-modal input {
+  background: var(--input-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+.wallet-adapter-modal input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: var(--focus-ring) !important;
 }

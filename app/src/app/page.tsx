@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import { KAMINO_RESERVE, TSLAX_MINT } from "../config";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const steps = [
   {
@@ -24,7 +27,10 @@ export default function Landing() {
     <main>
       <header className="wrap nav">
         <span className="brand">TSLAx Vault</span>
-        <span className="badge">Devnet MVP</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <ThemeToggle />
+          <span className="badge">Devnet MVP</span>
+        </div>
       </header>
 
       <section className="wrap hero">

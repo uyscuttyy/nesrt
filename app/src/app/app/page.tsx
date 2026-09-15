@@ -1,7 +1,6 @@
 "use client";
 
-import {
-  useAnchorWallet,
+import { useAnchorWallet,
   useConnection,
   useWallet,
 } from "@solana/wallet-adapter-react";
@@ -21,6 +20,7 @@ import {
   toUiAmount,
   tokenBalance,
 } from "../../vault";
+import ThemeToggle from "@/components/ThemeToggle";
 
 type Balances = {
   tslax: bigint | null;
@@ -129,7 +129,10 @@ export default function Dashboard() {
         <Link className="brand" href="/">
           TSLAx Vault
         </Link>
-        <WalletMultiButton />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <ThemeToggle />
+          <WalletMultiButton />
+        </div>
       </header>
 
       <h1>The Sanctuary</h1>

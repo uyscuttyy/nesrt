@@ -428,6 +428,154 @@
           "signer": false
         },
         {
+          "name": "tslaxMint",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "pythPriceFeed",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "systemProgram",
+          "writable": false,
+          "signer": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initializeStateV2",
+      "discriminator": [
+        50,
+        88,
+        153,
+        218,
+        18,
+        3,
+        245,
+        107
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "tslaxMint",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "kaminoMarket",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "kaminoReserve",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "ctokenMint",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "receiptMint",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "pythPriceFeed",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "vaultAuthority",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "systemProgram",
+          "writable": false,
+          "signer": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "closeVaultStateV2",
+      "discriminator": [
+        157,
+        2,
+        31,
+        74,
+        110,
+        95,
+        186,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "tslaxMint",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "systemProgram",
+          "writable": false,
+          "signer": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "allocateVaultState",
+      "discriminator": [
+        95,
+        124,
+        20,
+        24,
+        179,
+        158,
+        40,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "tslaxMint",
+          "writable": false,
+          "signer": false
+        },
+        {
           "name": "pythPriceFeed",
           "writable": false,
           "signer": false
@@ -562,12 +710,12 @@
             "type": "u8"
           },
           {
-            "name": "pyth_price_feed",
-            "type": "pubkey"
-          },
-          {
             "name": "is_paused",
             "type": "bool"
+          },
+          {
+            "name": "pyth_price_feed",
+            "type": "pubkey"
           }
         ]
       }

@@ -191,6 +191,13 @@ pub mod vault {
         Ok(())
     }
 
+    /// Create the yTSLAx receipt mint (authority = vault authority PDA).
+    /// Account creation via init constraint; handler records nothing.
+    pub fn initialize_mint(_ctx: Context<InitializeMint>) -> Result<()> {
+        msg!("vault receipt mint initialized");
+        Ok(())
+    }
+
     /// Deposit TSLAx: custody transfer, Kamino supply CPI, mint yTSLAx 1:1
     /// against the cTokens the reserve issued for this deposit.
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
@@ -569,7 +576,7 @@ pub struct InitializeMint<'info> {
     pub admin: Signer<'info>,
 
     #[account(
-        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
         bump = vault_state.state_bump,
         constraint = vault_state.admin == admin.key(),
     )]
@@ -577,7 +584,7 @@ pub struct InitializeMint<'info> {
 
     /// CHECK: PDA signer, seeds verified against vault state.
     #[account(
-        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-authority", vault_state.tslax_mint.as_ref()],
         bump = vault_state.authority_bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
@@ -585,7 +592,7 @@ pub struct InitializeMint<'info> {
     #[account(
         init,
         payer = admin,
-        seeds = [b"receipt-mint", vault_state.tslax_mint.as_ref()],
+        seeds = [b"receipt-mint-v2", vault_state.tslax_mint.as_ref()],
         bump,
         mint::decimals = 6,
         mint::authority = vault_authority,
@@ -690,7 +697,7 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [b"receipt-mint", vault_state.tslax_mint.as_ref()],
+        seeds = [b"receipt-mint-v2", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = receipt_mint.key() == vault_state.receipt_mint,
     )]
@@ -774,7 +781,7 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [b"receipt-mint", vault_state.tslax_mint.as_ref()],
+        seeds = [b"receipt-mint-v2", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = receipt_mint.key() == vault_state.receipt_mint,
     )]

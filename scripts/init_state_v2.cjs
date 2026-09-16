@@ -12,7 +12,7 @@ async function main() {
   const CTOKEN = new PublicKey(process.env.KAMINO_CTOKEN_MINT);
   const MARKET = new PublicKey(process.env.KAMINO_MARKET);
   const RESERVE = new PublicKey(process.env.KAMINO_RESERVE);
-  const RECEIPT = new PublicKey("7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU"); // receipt mint from Phase 2
+  const RECEIPT = PublicKey.findProgramAddressSync([Buffer.from("receipt-mint-v2"), TSLAX.toBuffer()], program.programId)[0]; // yTSLAx receipt mint PDA
   
   // New PDA seeds: "vault-v2" and "vault-v2-authority"
   const [vaultStateV2] = PublicKey.findProgramAddressSync([Buffer.from("vault-v2"), TSLAX.toBuffer()], program.programId);

@@ -39,7 +39,7 @@ describe("tslax vault (devnet)", () => {
     program.programId
   );
   const [receiptMint] = PublicKey.findProgramAddressSync(
-    [Buffer.from("receipt-mint"), TSLAX_MINT.toBuffer()],
+    [Buffer.from("receipt-mint-v2"), TSLAX_MINT.toBuffer()],
     program.programId
   );
   const [vaultTslax] = PublicKey.findProgramAddressSync(

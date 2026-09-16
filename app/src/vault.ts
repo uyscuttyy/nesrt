@@ -75,7 +75,7 @@ export function deriveAddresses(): VaultAddresses {
     programId
   );
   const [receiptMint] = PublicKey.findProgramAddressSync(
-    [Buffer.from("receipt-mint"), tslax.toBuffer()],
+    [Buffer.from("receipt-mint-v2"), tslax.toBuffer()],
     programId
   );
   const [vaultTslax] = PublicKey.findProgramAddressSync(

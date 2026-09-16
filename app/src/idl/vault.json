@@ -587,6 +587,68 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "setPaused",
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "setAdmin",
+      "discriminator": [
+        251,
+        163,
+        0,
+        52,
+        91,
+        194,
+        187,
+        92
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "newAdmin",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -669,6 +731,11 @@
       "code": 6012,
       "name": "AmountExceedsShares",
       "msg": "requested amount exceeds available shares"
+    },
+    {
+      "code": 6013,
+      "name": "WrongAdmin",
+      "msg": "caller is not the vault admin"
     }
   ],
   "types": [

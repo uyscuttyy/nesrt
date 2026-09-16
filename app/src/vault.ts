@@ -67,11 +67,11 @@ export function deriveAddresses(): VaultAddresses {
   const programId = vaultProgramId();
   const tslax = new PublicKey(TSLAX_MINT);
   const [vaultState] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), tslax.toBuffer()],
+    [Buffer.from("vault-v2"), tslax.toBuffer()],
     programId
   );
   const [authority] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-authority"), tslax.toBuffer()],
+    [Buffer.from("vault-v2-authority"), tslax.toBuffer()],
     programId
   );
   const [receiptMint] = PublicKey.findProgramAddressSync(
@@ -79,11 +79,11 @@ export function deriveAddresses(): VaultAddresses {
     programId
   );
   const [vaultTslax] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-tslax"), tslax.toBuffer()],
+    [Buffer.from("vault-v2-tslax"), tslax.toBuffer()],
     programId
   );
   const [vaultCtoken] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-ctoken"), tslax.toBuffer()],
+    [Buffer.from("vault-v2-ctoken"), tslax.toBuffer()],
     programId
   );
   const [marketAuthority] = PublicKey.findProgramAddressSync(

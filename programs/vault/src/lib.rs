@@ -149,6 +149,34 @@ pub mod vault {
         Ok(())
     }
 
+    /// Flip the emergency pause flag. Admin-gated; single key or multisig
+    /// authority (Squads V4) can sign as `admin` since only the key matters.
+    pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
+        let state = &mut ctx.accounts.vault_state;
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            state.admin,
+            VaultError::WrongAdmin
+        );
+        state.is_paused = paused;
+        msg!("vault paused={}", paused);
+        Ok(())
+    }
+
+    /// Transfer vault authority to a new admin (e.g. a Squads V4 multisig).
+    /// Only the current admin can do this; effects apply immediately.
+    pub fn set_admin(ctx: Context<SetAdmin>) -> Result<()> {
+        let state = &mut ctx.accounts.vault_state;
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            state.admin,
+            VaultError::WrongAdmin
+        );
+        state.admin = ctx.accounts.new_admin.key();
+        msg!("vault admin={}", state.admin);
+        Ok(())
+    }
+
     /// Initialize vault state v2 for a given TSLAx mint and Kamino reserve.
     /// Uses different PDA seed "vault-v2" to avoid conflict with old PDA.
     pub fn initialize_state_v2(ctx: Context<InitializeStateV2>) -> Result<()> {
@@ -571,6 +599,35 @@ pub struct CloseVaultStateV2<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetPaused<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.state_bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+}
+
+#[derive(Accounts)]
+pub struct SetAdmin<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: new admin authority (wallet or Squads multisig); stored as-is.
+    pub new_admin: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
+        bump = vault_state.state_bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+}
+
+#[derive(Accounts)]
 pub struct InitializeMint<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -984,4 +1041,6 @@ pub enum VaultError {
     InsufficientShares,
     #[msg("requested amount exceeds available shares")]
     AmountExceedsShares,
+    #[msg("caller is not the vault admin")]
+    WrongAdmin,
 }

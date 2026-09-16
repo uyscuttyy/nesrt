@@ -11,6 +11,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { TSLAX_MINT } from "../../config";
 import { fetchReserveSnapshot } from "../../yield";
+import { fetchVaultHistory, VaultEvent } from "../../history";
+import { friendlyError } from "../../errors";
 import {
   buildDepositTx,
   buildWithdrawTx,
@@ -21,6 +23,9 @@ import {
   tokenBalance,
 } from "../../vault";
 import ThemeToggle from "@/components/ThemeToggle";
+import { ToastStack, useToasts } from "@/components/Toasts";
+import OnboardingModal from "@/components/OnboardingModal";
+import YieldChart from "@/components/YieldChart";
 
 type Balances = {
   tslax: bigint | null;
@@ -29,9 +34,10 @@ type Balances = {
 };
 
 /**
- * Sanctuary dashboard (Phases 8-9): real balances, real deposits/withdrawals
- * against the deployed vault program, and a live position value computed
- * from the on-chain Kamino cToken exchange rate. Nothing is simulated.
+ * Sanctuary dashboard: real balances, real deposits/withdrawals
+ * against the deployed vault program, live position value from the
+ * on-chain Kamino cToken exchange rate, yield chart, and real
+ * transaction history. Nothing is simulated.
  */
 export default function Dashboard() {
   const { connection } = useConnection();
@@ -39,9 +45,12 @@ export default function Dashboard() {
   const anchorWallet = useAnchorWallet();
   const [balances, setBalances] = useState<Balances>({ tslax: null, ytslax: null, rate: null });
   const [amount, setAmount] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [history, setHistory] = useState<VaultEvent[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [providerState, setProviderState] = useState("checking");
+  const { toasts, push, dismiss } = useToasts();
 
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
@@ -63,26 +72,57 @@ export default function Dashboard() {
       ]);
       setBalances({ tslax, ytslax, rate: snap ? snap.rate : null });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load balances.");
+      push(friendlyError(e));
+    }
+  }, [connected, publicKey, connection, push]);
+
+  const refreshHistory = useCallback(async () => {
+    if (!connected || !publicKey) return;
+    try {
+      setHistory(await fetchVaultHistory(connection, publicKey));
+    } catch {
+      /* history is best-effort, balances matter more */
     }
   }, [connected, publicKey, connection]);
 
   useEffect(() => {
     void refresh();
+    void refreshHistory();
     const id = setInterval(() => void refresh(), 15000);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [refresh, refreshHistory]);
+
+  useEffect(() => {
+    if (!connected || !publicKey) return;
+    try {
+      if (!localStorage.getItem(`tslax-onboarded-${publicKey.toBase58()}`)) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      setShowOnboarding(true);
+    }
+  }, [connected, publicKey]);
+
+  function closeOnboarding() {
+    try {
+      if (publicKey) localStorage.setItem(`tslax-onboarded-${publicKey.toBase58()}`, "1");
+    } catch {
+      /* ignore */
+    }
+    setShowOnboarding(false);
+  }
 
   async function submit(build: () => Promise<{ sig: string }>) {
-    setError("");
     setBusy(true);
     try {
       const { sig } = await build();
       await connection.confirmTransaction(sig, "confirmed");
       setAmount("");
+      setWithdrawAmount("");
       await refresh();
+      await refreshHistory();
     } catch (e) {
-      setError(userMessage(e));
+      push(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -92,7 +132,7 @@ export default function Dashboard() {
     if (!publicKey || !anchorWallet) return;
     const parsed = Number(amount);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      setError("Enter an amount greater than zero.");
+      push("Enter an amount greater than zero.");
       return;
     }
     void submit(async () => {
@@ -106,13 +146,35 @@ export default function Dashboard() {
   function onWithdraw() {
     if (!publicKey || !anchorWallet) return;
     if (balances.ytslax === null || balances.ytslax === 0n) {
-      setError("No vault position to withdraw.");
+      push("No vault position to withdraw.");
       return;
     }
-    const shares = balances.ytslax;
+    let shares = balances.ytslax;
+    const parsed = withdrawAmount.trim() === "" ? NaN : Number(withdrawAmount);
+    if (!Number.isNaN(parsed)) {
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        push("Enter a withdraw amount greater than zero.");
+        return;
+      }
+      if (balances.rate === null || balances.rate <= 0) {
+        push("Live rate is unavailable. Try again in a moment.");
+        return;
+      }
+      const wanted = BigInt(Math.floor((parsed * 10 ** 6) / balances.rate));
+      if (wanted <= 0n) {
+        push("That amount is too small to withdraw.");
+        return;
+      }
+      if (wanted > balances.ytslax) {
+        push("That amount is more than your vault position.");
+        return;
+      }
+      shares = wanted;
+    }
+    const finalShares = shares;
     void submit(async () => {
       const program = getProgram(connection, anchorWallet);
-      const tx = await buildWithdrawTx(program, publicKey, shares);
+      const tx = await buildWithdrawTx(program, publicKey, finalShares);
       const sig = await sendTransaction(tx, connection);
       return { sig };
     });
@@ -167,6 +229,7 @@ export default function Dashboard() {
               </span>
             </div>
           </div>
+          <YieldChart value={positionValue} />
           <div className="actions">
             <input
               className="input"
@@ -181,14 +244,61 @@ export default function Dashboard() {
             <button className="cta" onClick={onDeposit} disabled={busy}>
               {busy ? "Working" : "Deposit and Earn"}
             </button>
+          </div>
+          <div className="actions">
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="any"
+              placeholder="Withdraw amount, empty for full"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              disabled={busy}
+            />
             <button className="ghost" onClick={onWithdraw} disabled={busy}>
               Withdraw
             </button>
           </div>
-          {error ? <p className="error">{error}</p> : null}
+          <HistoryTimeline events={history} />
         </div>
       )}
+      {showOnboarding && connected ? (
+        <OnboardingModal
+          onFunded={() => {
+            void refresh();
+            void refreshHistory();
+          }}
+          onClose={closeOnboarding}
+        />
+      ) : null}
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </main>
+  );
+}
+
+function HistoryTimeline({ events }: { events: VaultEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="card">
+      <span className="label">Transaction history</span>
+      <ul className="timeline">
+        {events.map((e) => (
+          <li key={e.signature}>
+            <strong>{e.kind === "deposit" ? "Deposit" : "Withdraw"}</strong>{" "}
+            <span className="muted">{e.tslax.toFixed(6)} TSLAx</span>{" "}
+            <a
+              className="fine"
+              href={`https://explorer.solana.com/tx/${e.signature}?cluster=devnet`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {e.time ? new Date(e.time * 1000).toLocaleString() : `slot ${e.slot}`}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -198,12 +308,4 @@ function fmt(v: bigint | null): string {
 
 function shortKey(key: string): string {
   return key.length > 12 ? `${key.slice(0, 4)}...${key.slice(-4)}` : key;
-}
-
-function userMessage(e: unknown): string {
-  const msg = e instanceof Error ? e.message : "Transaction failed.";
-  if (/user rejected|rejected/i.test(msg)) return "Transaction rejected in wallet.";
-  if (/insufficient/i.test(msg)) return "Insufficient balance for this action.";
-  if (/not deployed/i.test(msg)) return msg;
-  return msg.length > 220 ? `${msg.slice(0, 220)}...` : msg;
 }

@@ -152,7 +152,23 @@ pub mod vault {
     /// Initialize vault state v2 for a given TSLAx mint and Kamino reserve.
     /// Uses different PDA seed "vault-v2" to avoid conflict with old PDA.
     pub fn initialize_state_v2(ctx: Context<InitializeStateV2>) -> Result<()> {
-        msg!("vault receipt mint initialized");
+        let state = &mut ctx.accounts.vault_state;
+        state.admin = ctx.accounts.admin.key();
+        state.tslax_mint = ctx.accounts.tslax_mint.key();
+        state.receipt_mint = ctx.accounts.receipt_mint.key();
+        state.kamino_market = ctx.accounts.kamino_market.key();
+        state.kamino_reserve = ctx.accounts.kamino_reserve.key();
+        state.kamino_ctoken_mint = ctx.accounts.ctoken_mint.key();
+        state.pyth_price_feed = ctx.accounts.pyth_price_feed.key();
+        state.authority_bump = ctx.bumps.vault_authority;
+        state.state_bump = ctx.bumps.vault_state;
+        state.is_paused = false;
+        msg!(
+            "vault state v2 initialized: tslax={} market={} reserve={}",
+            state.tslax_mint,
+            state.kamino_market,
+            state.kamino_reserve
+        );
         Ok(())
     }
 
@@ -208,7 +224,7 @@ pub mod vault {
         let c_before = ctx.accounts.vault_ctoken.amount;
         let auth_mint = state.tslax_mint;
         let auth_bump = state.authority_bump;
-        let seeds: &[&[u8]] = &[b"vault-authority", auth_mint.as_ref(), &[auth_bump]];
+        let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
         invoke_signed(
             &kamino::supply_ix(
                 amount,
@@ -308,7 +324,7 @@ pub mod vault {
         let t_before = ctx.accounts.vault_tslax.amount;
         let auth_mint = state.tslax_mint;
         let auth_bump = state.authority_bump;
-        let seeds: &[&[u8]] = &[b"vault-authority", auth_mint.as_ref(), &[auth_bump]];
+        let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
         invoke_signed(
             &kamino::redeem_ix(
                 shares,

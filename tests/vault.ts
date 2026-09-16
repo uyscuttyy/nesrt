@@ -20,18 +20,22 @@ const SYSVAR_IX = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 const DECIMALS = 6;
 const ui = (n: number) => n * 10 ** DECIMALS;
 
+// Pyth devnet price feed for mock TSLAx (placeholder - to be created)
+const PYTH_PRICE_FEED = new PublicKey(process.env.PYTH_PRICE_FEED || "FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9");
+
 describe("tslax vault (devnet)", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program = anchor.workspace.Vault as Program<Vault>;
   const admin = provider.wallet;
 
+  // Use vault-v2 PDA seeds (new layout)
   const [vaultState] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), TSLAX_MINT.toBuffer()],
+    [Buffer.from("vault-v2"), TSLAX_MINT.toBuffer()],
     program.programId
   );
   const [authority] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-authority"), TSLAX_MINT.toBuffer()],
+    [Buffer.from("vault-v2-authority"), TSLAX_MINT.toBuffer()],
     program.programId
   );
   const [receiptMint] = PublicKey.findProgramAddressSync(
@@ -39,11 +43,11 @@ describe("tslax vault (devnet)", () => {
     program.programId
   );
   const [vaultTslax] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-tslax"), TSLAX_MINT.toBuffer()],
+    [Buffer.from("vault-v2-tslax"), TSLAX_MINT.toBuffer()],
     program.programId
   );
   const [vaultCtoken] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault-ctoken"), TSLAX_MINT.toBuffer()],
+    [Buffer.from("vault-v2-ctoken"), TSLAX_MINT.toBuffer()],
     program.programId
   );
   const [marketAuthority] = PublicKey.findProgramAddressSync(
@@ -97,7 +101,7 @@ describe("tslax vault (devnet)", () => {
   it("initializes vault state", async () => {
     try {
       const sig = await program.methods
-        .initializeState()
+        .initializeStateV2()
         .accounts({
           admin: admin.publicKey,
           tslaxMint: TSLAX_MINT,
@@ -105,15 +109,16 @@ describe("tslax vault (devnet)", () => {
           kaminoReserve: KAMINO_RESERVE,
           ctokenMint: CTOKEN_MINT,
           receiptMint,
+          pythPriceFeed: PYTH_PRICE_FEED,
           vaultState,
           vaultAuthority: authority,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-      console.log("INIT-STATE SIG:", sig);
+      console.log("INIT-STATE-V2 SIG:", sig);
     } catch (e) {
       // Idempotent reruns: the PDA already exists from a previous run.
-      console.log("init-state skipped (already exists)");
+      console.log("init-state-v2 skipped (already exists)");
     }
   });
 

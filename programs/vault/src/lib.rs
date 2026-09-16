@@ -28,8 +28,10 @@ pub mod vault {
         state.kamino_market = ctx.accounts.kamino_market.key();
         state.kamino_reserve = ctx.accounts.kamino_reserve.key();
         state.kamino_ctoken_mint = ctx.accounts.ctoken_mint.key();
+        state.pyth_price_feed = ctx.accounts.pyth_price_feed.key();
         state.authority_bump = ctx.bumps.vault_authority;
         state.state_bump = ctx.bumps.vault_state;
+        state.is_paused = false;
         msg!(
             "vault state initialized: tslax={} market={} reserve={}",
             state.tslax_mint,
@@ -39,9 +41,117 @@ pub mod vault {
         Ok(())
     }
 
-    /// Create the yTSLAx receipt mint (authority = vault authority PDA).
-    /// Admin-gated via state.
-    pub fn initialize_mint(_ctx: Context<InitializeMint>) -> Result<()> {
+    /// Admin-only instruction to close the old vault state PDA.
+    /// Called when program is upgraded and VaultState struct changes.
+    /// Returns rent to admin; next initialize_state_v2 will recreate with new layout.
+    pub fn migrate_state(ctx: Context<MigrateState>) -> Result<()> {
+        let vault_state_info = &ctx.accounts.vault_state;
+        
+        // Verify this is the correct vault state by checking discriminator
+        let data = vault_state_info.try_borrow_data()?;
+        require!(data.len() >= 8, VaultError::MathError);
+        let expected_disc: [u8; 8] = [228, 196, 82, 165, 98, 210, 235, 152];
+        require!(&data[0..8] == expected_disc, VaultError::MathError);
+        drop(data);
+
+        // Close the old vault state PDA (return rent to admin)
+        let lamports = vault_state_info.lamports();
+        **vault_state_info.try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.admin.try_borrow_mut_lamports()? = ctx
+            .accounts
+            .admin
+            .lamports()
+            .checked_add(lamports)
+            .ok_or(VaultError::MathError)?;
+
+        // Mark account as closed by zeroing discriminator
+        {
+            let mut data_mut = vault_state_info.try_borrow_mut_data()?;
+            data_mut[0..8].fill(0);
+        }
+
+        msg!("vault state PDA closed; re-run initialize_state_v2 to recreate with new layout");
+        Ok(())
+    }
+
+    /// Close the vault-v2 state PDA (for reinitialization).
+    pub fn close_vault_state_v2(ctx: Context<CloseVaultStateV2>) -> Result<()> {
+        let vault_state_info = &ctx.accounts.vault_state;
+        
+        // Verify this is the correct vault state by checking discriminator
+        let data = vault_state_info.try_borrow_data()?;
+        require!(data.len() >= 8, VaultError::MathError);
+        let expected_disc: [u8; 8] = [228, 196, 82, 165, 98, 210, 235, 152];
+        require!(&data[0..8] == expected_disc, VaultError::MathError);
+        drop(data);
+
+        // Close the vault-v2 state PDA (return rent to admin)
+        let lamports = vault_state_info.lamports();
+        **vault_state_info.try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.admin.try_borrow_mut_lamports()? = ctx
+            .accounts
+            .admin
+            .lamports()
+            .checked_add(lamports)
+            .ok_or(VaultError::MathError)?;
+
+        // Mark account as closed by zeroing discriminator
+        {
+            let mut data_mut = vault_state_info.try_borrow_mut_data()?;
+            data_mut[0..8].fill(0);
+        }
+
+        msg!("vault-v2 state PDA closed");
+        Ok(())
+    }
+
+    /// Allocate space for the vault state PDA at the original address.
+    /// Uses system program Allocate instruction (signed by PDA).
+    pub fn allocate_vault_state(ctx: Context<AllocateVaultState>) -> Result<()> {
+        let vault_state_info = &ctx.accounts.vault_state;
+        let tslax_mint = ctx.accounts.tslax_mint.key();
+        let state_bump = ctx.bumps.vault_state;
+
+        // Verify the account is empty (discriminator zeroed)
+        let data = vault_state_info.try_borrow_data()?;
+        require!(data.len() >= 8, VaultError::MathError);
+        require!(&data[0..8] == [0u8; 8], VaultError::MathError); // must be closed
+        drop(data);
+
+        // Use system program to allocate 272 bytes at the PDA
+        // SystemInstruction::Allocate = 8
+        let allocate_ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: anchor_lang::solana_program::system_program::ID,
+            accounts: vec![
+                anchor_lang::solana_program::instruction::AccountMeta::new(vault_state_info.key(), false),
+            ],
+            data: {
+                let mut data = vec![8u8]; // SystemInstruction::Allocate
+                data.extend_from_slice(&272u64.to_le_bytes());
+                data
+            },
+        };
+
+        anchor_lang::solana_program::program::invoke_signed(
+            &allocate_ix,
+            &[
+                vault_state_info.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            &[&[
+                b"vault",
+                tslax_mint.as_ref(),
+                &[state_bump],
+            ]],
+        )?;
+
+        msg!("vault state PDA allocated to 272 bytes");
+        Ok(())
+    }
+
+    /// Initialize vault state v2 for a given TSLAx mint and Kamino reserve.
+    /// Uses different PDA seed "vault-v2" to avoid conflict with old PDA.
+    pub fn initialize_state_v2(ctx: Context<InitializeStateV2>) -> Result<()> {
         msg!("vault receipt mint initialized");
         Ok(())
     }
@@ -70,6 +180,7 @@ pub mod vault {
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
         let state = &ctx.accounts.vault_state;
+        require!(!state.is_paused, VaultError::VaultPaused);
         kamino::verify_reserve_accounts(
             state,
             &ctx.accounts.kamino_market,
@@ -161,9 +272,11 @@ pub mod vault {
 
     /// Burn yTSLAx, redeem the matching cTokens from Kamino via CPI, and
     /// return the underlying TSLAx plus accrued interest to the user.
+    /// Accepts `shares` = yTSLAx amount to burn. Partial withdrawal supported.
     pub fn withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         require!(shares > 0, VaultError::ZeroAmount);
         let state = &ctx.accounts.vault_state;
+        require!(!state.is_paused, VaultError::VaultPaused);
         kamino::verify_reserve_accounts(
             state,
             &ctx.accounts.kamino_market,
@@ -173,6 +286,10 @@ pub mod vault {
             &ctx.accounts.reserve_collateral_mint,
             &ctx.accounts.kamino_program,
         )?;
+
+        // Verify user has enough shares.
+        let user_shares = ctx.accounts.user_receipt.amount;
+        require!(user_shares >= shares, VaultError::InsufficientShares);
 
         // 1. Burn the user's receipt shares.
         token::burn(
@@ -268,10 +385,14 @@ pub struct VaultState {
     pub authority_bump: u8,
     /// Bump for this state PDA.
     pub state_bump: u8,
+    /// Emergency pause flag. When true, deposit/withdraw are halted.
+    pub is_paused: bool,
+    /// Pyth price feed account for the reserve oracle.
+    pub pyth_price_feed: Pubkey,
 }
 
 impl VaultState {
-    pub const SPACE: usize = 8 + 32 * 6 + 1 + 1;
+    pub const SPACE: usize = 8 + 32 * 8 + 1 + 1 + 1;
 }
 
 #[derive(Accounts)]
@@ -291,6 +412,9 @@ pub struct InitializeState<'info> {
     /// The yTSLAx receipt mint (created by initialize_accounts).
     /// CHECK: recorded as state.receipt_mint; existence enforced at use.
     pub receipt_mint: UncheckedAccount<'info>,
+    /// Pyth price feed account for the mock TSLAx asset (Devnet).
+    /// CHECK: validated by Pyth program; stored for reserve config updates.
+    pub pyth_price_feed: UncheckedAccount<'info>,
 
     #[account(
         init,
@@ -308,6 +432,117 @@ pub struct InitializeState<'info> {
         bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateState<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: existing vault state account with old layout; we manually migrate it.
+    /// PDA derived from [b"vault", tslax_mint.key().as_ref()].
+    #[account(
+        mut,
+        seeds = [b"vault", tslax_mint.key().as_ref()],
+        bump,
+        constraint = vault_state.owner == &crate::ID,
+    )]
+    pub vault_state: UncheckedAccount<'info>,
+
+    /// The mock TSLAx mint - needed for PDA derivation.
+    pub tslax_mint: UncheckedAccount<'info>,
+
+    /// Pyth price feed account for the mock TSLAx asset (Devnet).
+    /// CHECK: validated by Pyth program; stored for reserve config updates.
+    pub pyth_price_feed: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AllocateVaultState<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: existing vault state account with old layout; we manually migrate it.
+    /// PDA derived from [b"vault", tslax_mint.key().as_ref()].
+    #[account(
+        mut,
+        seeds = [b"vault", tslax_mint.key().as_ref()],
+        bump,
+        constraint = vault_state.owner == &crate::ID,
+    )]
+    pub vault_state: UncheckedAccount<'info>,
+
+    /// The mock TSLAx mint - needed for PDA derivation.
+    pub tslax_mint: UncheckedAccount<'info>,
+
+    /// Pyth price feed account for the mock TSLAx asset (Devnet).
+    /// CHECK: validated by Pyth program; stored for reserve config updates.
+    pub pyth_price_feed: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeStateV2<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// The mock TSLAx mint created in Phase 2.
+    pub tslax_mint: Box<Account<'info, Mint>>,
+    /// CHECK: recorded for the deposit/withdraw CPI; owned by the KLend
+    /// program on devnet. Validated by use, not by type.
+    pub kamino_market: UncheckedAccount<'info>,
+    /// CHECK: recorded for the deposit/withdraw CPI. Validated by use.
+    pub kamino_reserve: UncheckedAccount<'info>,
+    /// The Kamino cToken mint of the TSLAx reserve (Phase 2 output).
+    pub ctoken_mint: Box<Account<'info, Mint>>,
+    /// The yTSLAx receipt mint (created by initialize_accounts).
+    /// CHECK: recorded as state.receipt_mint; existence enforced at use.
+    pub receipt_mint: UncheckedAccount<'info>,
+    /// Pyth price feed account for the mock TSLAx asset (Devnet).
+    /// CHECK: validated by Pyth program; stored for reserve config updates.
+    pub pyth_price_feed: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = admin,
+        space = VaultState::SPACE,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+    /// Signing PDA for all vault-owned token accounts and Kamino CPI.
+    /// CHECK: PDA derived from seeds below; no data stored.
+    #[account(
+        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseVaultStateV2<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: existing vault-v2 state PDA to close.
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+        constraint = vault_state.owner == &crate::ID,
+    )]
+    pub vault_state: UncheckedAccount<'info>,
+
+    /// The mock TSLAx mint - needed for PDA derivation.
+    pub tslax_mint: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -352,7 +587,7 @@ pub struct InitializeCustody<'info> {
     pub admin: Signer<'info>,
 
     #[account(
-        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
         bump = vault_state.state_bump,
         constraint = vault_state.admin == admin.key(),
     )]
@@ -360,7 +595,7 @@ pub struct InitializeCustody<'info> {
 
     /// CHECK: PDA signer, seeds verified against vault state.
     #[account(
-        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-authority", vault_state.tslax_mint.as_ref()],
         bump = vault_state.authority_bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
@@ -373,7 +608,7 @@ pub struct InitializeCustody<'info> {
     #[account(
         init,
         payer = admin,
-        seeds = [b"vault-tslax", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-tslax", vault_state.tslax_mint.as_ref()],
         bump,
         token::mint = tslax_mint,
         token::authority = vault_authority,
@@ -383,7 +618,7 @@ pub struct InitializeCustody<'info> {
     #[account(
         init,
         payer = admin,
-        seeds = [b"vault-ctoken", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-ctoken", vault_state.tslax_mint.as_ref()],
         bump,
         token::mint = ctoken_mint,
         token::authority = vault_authority,
@@ -402,14 +637,14 @@ pub struct Deposit<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
         bump = vault_state.state_bump,
     )]
     pub vault_state: Account<'info, VaultState>,
 
     /// CHECK: PDA signer, seeds verified against vault state.
     #[account(
-        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-authority", vault_state.tslax_mint.as_ref()],
         bump = vault_state.authority_bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
@@ -423,7 +658,7 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [b"vault-tslax", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-tslax", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = vault_tslax.mint == vault_state.tslax_mint,
     )]
@@ -431,7 +666,7 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [b"vault-ctoken", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-ctoken", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
     )]
@@ -486,14 +721,14 @@ pub struct Withdraw<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [b"vault", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2", vault_state.tslax_mint.as_ref()],
         bump = vault_state.state_bump,
     )]
     pub vault_state: Account<'info, VaultState>,
 
     /// CHECK: PDA signer, seeds verified against vault state.
     #[account(
-        seeds = [b"vault-authority", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-authority", vault_state.tslax_mint.as_ref()],
         bump = vault_state.authority_bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
@@ -507,7 +742,7 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [b"vault-tslax", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-tslax", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = vault_tslax.mint == vault_state.tslax_mint,
     )]
@@ -515,7 +750,7 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [b"vault-ctoken", vault_state.tslax_mint.as_ref()],
+        seeds = [b"vault-v2-ctoken", vault_state.tslax_mint.as_ref()],
         bump,
         constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
     )]
@@ -720,4 +955,10 @@ pub enum VaultError {
     WrongProgram,
     #[msg("wrong lending market authority PDA")]
     WrongMarketAuthority,
+    #[msg("vault is paused")]
+    VaultPaused,
+    #[msg("insufficient shares to withdraw")]
+    InsufficientShares,
+    #[msg("requested amount exceeds available shares")]
+    AmountExceedsShares,
 }

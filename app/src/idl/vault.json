@@ -56,6 +56,11 @@
           "signer": false
         },
         {
+          "name": "pythPriceFeed",
+          "writable": false,
+          "signer": false
+        },
+        {
           "name": "vaultAuthority",
           "writable": false,
           "signer": false
@@ -398,6 +403,42 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "migrateState",
+      "discriminator": [
+        34,
+        189,
+        226,
+        222,
+        218,
+        156,
+        19,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "pythPriceFeed",
+          "writable": false,
+          "signer": false
+        },
+        {
+          "name": "systemProgram",
+          "writable": false,
+          "signer": false
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -465,6 +506,21 @@
       "code": 6009,
       "name": "WrongMarketAuthority",
       "msg": "wrong lending market authority PDA"
+    },
+    {
+      "code": 6010,
+      "name": "VaultPaused",
+      "msg": "vault is paused"
+    },
+    {
+      "code": 6011,
+      "name": "InsufficientShares",
+      "msg": "insufficient shares to withdraw"
+    },
+    {
+      "code": 6012,
+      "name": "AmountExceedsShares",
+      "msg": "requested amount exceeds available shares"
     }
   ],
   "types": [
@@ -504,6 +560,14 @@
           {
             "name": "stateBump",
             "type": "u8"
+          },
+          {
+            "name": "pyth_price_feed",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_paused",
+            "type": "bool"
           }
         ]
       }

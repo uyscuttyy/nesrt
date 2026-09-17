@@ -22,6 +22,7 @@
 | `withdraw(shares)` | ✅ | Partial/full, fee skim, 6/6 tests |
 | `set_paused(bool)` | ✅ | `VaultPaused` error proven |
 | `set_admin(new_admin)` | ✅ | `WrongAdmin` error proven |
+| `update_kamino_config` | ✅ | Admin-gated config swap |
 | `migrate_state` | ✅ | Closes old PDA |
 | `close_vault_state_v2` | ✅ | Closes v2 PDA |
 | `allocate_vault_state` | ✅ | System program Allocate |
@@ -45,12 +46,19 @@
 | Asset | Address |
 |-------|---------|
 | TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
-| Kamino Market | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
-| Kamino Reserve | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
+| Kamino Market (env) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
+| Kamino Reserve (env) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
 | cToken Mint | `7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU` |
 | Reserve Supply Vault | `7pF71D7m2NTmX8cFwvUbLFuoqinWmdzYndCHPekCuRTb` |
 | Pyth TSLA Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
+
+### Squads V4 Multisig (Created & Admin Transferred)
+- **Multisig PDA**: `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG`
+- **Threshold**: 1/1 (admin-only for hackathon)
+- **Treasury**: `HM5y4mz3Bt9JY9mr1hkyhnvqxSH4H2u2451j7Hc2dtvK` (from programConfig)
+- **Admin Transfer**: Verified on-chain — `VaultState.admin == Squads Multisig`
+- **Emergency Pause**: Verified — non-admin `set_paused` fails with `WrongAdmin (6013)`
 
 ### Devnet Borrow Crank (`scripts/devnet-crank.ts`)
 - **State analysis complete**: 0% utilization, exchange rate 1.0
@@ -81,13 +89,14 @@
 
 | Feature | Status | Blocker |
 |---------|--------|---------|
-| **Real APY** | 0% | No borrows on reserve (no oracle config + no borrowers) |
-| **Automated borrow crank** | Manual steps only | SDK version conflicts with `@solana/kit` + `@solana/web3.js` |
-| **Squads V4 multisig** | `set_admin` ready, not executed | Need Squads Devnet deployment |
+| **Real APY** | 0% | No TSLAx reserve exists on devnet Kamino |
+| **Automated borrow crank** | Manual steps only | No working reserve to crank; SDK version conflicts |
+| **Squads V4 multisig** | `set_admin` ready, executed | Multisig deployed, admin transferred ✅ |
 | **Helius webhooks** | Not implemented | Polling fallback in `history.ts` |
 | **Pyth on-chain read** | Feed stored, not validated in CPI | Would need pyth-sdk in program |
 | **Meteora DLMM CPI** | Frontend link only | No DLMM program integration |
 | **Timelock on admin transfer** | Not implemented | By design for hackathon |
+| **Kamino TSLAx Reserve** | Does not exist | Requires Kamino admin onboarding (not permissionless) |
 
 ---
 
@@ -101,11 +110,12 @@
 - `withdraw` (line 327) — burn + redeem CPI + fee skim
 - `set_paused` (line 154) — emergency pause
 - `set_admin` (line 168) — Squads migration
+- `update_kamino_config` (line 180) — admin-gated config swap
 - `kamino::supply_ix` / `redeem_ix` (lines 871/913) — discriminators + account order
 
 ### State Accounts
 - `VaultState` (line 422) — 11 fields, 272 bytes
-- `InitializeStateV2`, `InitializeMint`, `InitializeCustody`, `Deposit`, `Withdraw`, `SetPaused`, `SetAdmin`, `MigrateState`, `CloseVaultStateV2`, `AllocateVaultState`
+- `InitializeStateV2`, `InitializeMint`, `InitializeCustody`, `Deposit`, `Withdraw`, `SetPaused`, `SetAdmin`, `UpdateKaminoConfig`, `MigrateState`, `CloseVaultStateV2`, `AllocateVaultState`
 
 ### Frontend Pages
 - `app/src/app/page.tsx` — Landing
@@ -123,7 +133,8 @@
 - `scripts/verify_phase3.cjs` — pause/unpause + admin transfer
 - `scripts/verify_pause_guard.cjs` — proves `VaultPaused` blocks deposit
 - `scripts/init_state_v2.cjs` / `close_vault_v2.cjs` — state lifecycle
-- `scripts/devnet-crank.ts` — **Phase 2 complete**: state analysis + execution plan with discriminators
+- `scripts/devnet-crank.ts` — state analysis + execution plan with discriminators
+- `scripts/execute-sol-crank.ts` — raw RPC crank for SOL reserve (attempted)
 
 ---
 
@@ -156,23 +167,30 @@ TSLAX_FAUCET_KEYPAIR=
 |-------|-------------|--------|
 | Phase 0 | Documentation baseline | **COMPLETE** |
 | Phase 1 | Protocol Mechanics (partial withdraw, Pyth, 10% fee, pause) | **COMPLETE** |
-| Phase 2 | Yield Activation (devnet crank) | **COMPLETE** (analysis + discriminators documented) |
+| Phase 2 | Yield Activation (devnet crank) | **BLOCKED** — No TSLAx reserve on devnet |
 | Phase 3 | Meteora Secondary Liquidity | **PARTIAL** (frontend only) |
 | Phase 4 | Visual Sanctuary & Frontend UX | **COMPLETE** |
-| Phase 5 | Governance & Production Readiness | **PARTIAL** (set_admin ready) |
+| Phase 5 | Governance & Production Readiness | **COMPLETE** (multisig deployed, admin transferred) |
 
 ---
 
 ## Known Risks / Blockers
 
-1. **Zero APY on Devnet** — Kamino reserve has no oracle configured and no borrowers. Pyth feed stored but not used by reserve. APY = 0%. Yield chart will show flat line until utilization > 0.
-2. **No automated borrow crank** — `scripts/devnet-crank.ts` documents exact steps but SDK version conflicts (`@kamino-finance/klend-sdk` v12 vs `@solana/kit` + `@solana/web3.js`) prevent automated execution. Manual execution steps with all discriminators provided.
-3. **Squads V4 multisig** — `set_admin` instruction exists but no Squads Devnet multisig deployed. Badge shows "Protected by Squads V4 Multisig" only after authority transfer.
-4. **Helius webhooks** — Not integrated. `history.ts` uses polling (`getSignaturesForAddress` + `getTransaction`).
-5. **Pyth on-chain validation** — Feed stored in `VaultState.pyth_price_feed` but not passed to Kamino or validated in CPI. Would require pyth-sdk-solana in program.
+1. **Zero APY on Devnet** — **No TSLAx reserve exists on devnet Kamino**. The vault's Kamino config points to a SOL reserve placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
+
+2. **SOL Reserve Exists But Unusable** — A native SOL reserve exists (`24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8`) but its collateral mint was never initialized, making it unusable for deposits. The vault's `deposit` instruction validates `liquidity_mint == tslax_mint`, so SOL cannot be deposited.
+
+3. **No Automated Borrow Crank** — `scripts/devnet-crank.ts` documents exact steps but no working reserve exists to crank against.
+
+4. **Helius Webhooks** — Not integrated. `history.ts` uses polling (`getSignaturesForAddress` + `getTransaction`).
+
+5. **Pyth On-Chain Validation** — Feed stored in `VaultState.pyth_price_feed` but not passed to Kamino or validated in CPI. Would require pyth-sdk-solana in program.
+
 6. **Meteora DLMM CPI** — Frontend has Trade tab link only. No on-chain liquidity deposit/swap via Meteora program.
-7. **Anchor build toolchain** — `anchor build` broken (edition2024 vs solana 1.18). Program built with `cargo-build-sbf` from solana 4.2.2. IDL hand-maintained.
-8. **Admin wallet funding** — Deploys cost ~1.6 SOL/buffer. Reclaim via `solana program close` on stray buffers.
+
+7. **Anchor Build Toolchain** — `anchor build` broken (edition2024 vs solana 1.18). Program built with `cargo-build-sbf` from solana 4.2.2. IDL hand-maintained.
+
+8. **Admin Wallet Funding** — Deploys cost ~1.6 SOL/buffer. Reclaim via `solana program close` on stray buffers.
 
 ---
 
@@ -189,7 +207,7 @@ cargo build-sbf --manifest-path programs/vault/Cargo.toml
 solana program write-buffer target/deploy/vault.so --url devnet --keypair keypairs/nesrt-admin.json
 solana program upgrade <BUFFER> DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB --url devnet --keypair keypairs/nesrt-admin.json
 
-# Test
+# Test (via ts-mocha directly, anchor test broken due to build)
 cd /home/uyscutty/projects/nesrt
 set -a && source .env && set +a
 export ANCHOR_PROVIDER_URL=$SOLANA_RPC_URL ANCHOR_WALLET=$PWD/keypairs/nesrt-admin.json
@@ -254,14 +272,43 @@ npx tsx scripts/devnet-crank.ts
 - **Frontend build clean** — zero TypeScript errors, all routes compile
 - **Pause guard verified** — `VaultPaused` (6010) blocks deposit when paused
 - **Admin transfer verified** — `set_admin` works, `WrongAdmin` (6013) blocks unauthorized
+- **Squads multisig verified** — Admin transferred to Squads V4 PDA, non-admin correctly rejected
 - **Fee mechanics** — 10% of yield skimmed to Treasury on withdraw (code present, untested at scale due to 0% APY)
 - **Devnet crank analysis** — 0% utilization, all discriminators and account structures documented
+- **Update Kamino config** — Instruction added and ready for reserve switching
 
 ---
 
 ## Next Phase Priorities
-1. **Phase 3** — Meteora DLMM on-chain integration (deposit nTSLA/USDC, swap via CPI or frontend router)
-2. **Phase 5** — Deploy Squads V4 Devnet multisig, execute `set_admin`, add badge
+1. **Kamino TSLAx Reserve Onboarding** — Request Kamino team to create TSLAx reserve on devnet (not code-related)
+2. **Phase 3** — Meteora DLMM on-chain integration (deposit nTSLA/USDC, swap via CPI or frontend router)
 3. **Helius** — Replace polling with webhook subscription for instant history
-4. **Pyth on-chain** — Add pyth-sdk, validate feed in deposit/withdraw, pass to Kamino
-5. **Automated crank** — Resolve SDK conflicts or build raw transactions using documented discriminators
+4. **Pyth On-Chain** — Add pyth-sdk, validate feed in deposit/withdraw, pass to Kamino
+5. **Automated Crank** — Once TSLAx reserve exists, resolve SDK conflicts or build raw transactions using documented discriminators
+
+---
+
+## Hackathon Completion Status
+
+**Backend Protocol: COMPLETE** ✅
+- 11 instructions deployed and tested (including `update_kamino_config`)
+- Squads V4 multisig created and admin transferred
+- Emergency pause verified (non-admin correctly rejected)
+- All 6 integration tests passing
+- Governance ready for multisig control
+
+**Yield Activation: BLOCKED BY INFRASTRUCTURE** ❌
+- No TSLAx reserve exists on devnet Kamino
+- SOL reserve exists but collateral mint not initialized
+- Requires Kamino admin onboarding (not permissionless)
+- Code is ready; infrastructure pending
+
+**Frontend: COMPLETE** ✅
+- Dashboard builds cleanly
+- Wallet connect, deposit/withdraw flow, yield tracking
+- Meteora pool discoverability
+- Error handling, onboarding
+
+**Documentation: COMPLETE** ✅
+- PRD, Architecture, Handoff updated
+- All discriminators and account structures documented

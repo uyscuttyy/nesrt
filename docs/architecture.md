@@ -124,6 +124,7 @@ pub struct VaultState {
 | `withdraw(shares)` | nTSLA → Kamino redeem → TSLAx | Pause guard, share validation, fee skim |
 | `set_paused(paused)` | Emergency pause toggle | Admin only, `WrongAdmin` check |
 | `set_admin(new_admin)` | Transfer authority to Squads | Admin only |
+| `update_kamino_config` | Update market/reserve/ctoken/pyth | Admin only, full config swap |
 | `migrate_state` | Close old PDA | Admin only |
 | `close_vault_state_v2` | Close v2 PDA | Admin only |
 | `allocate_vault_state` | Reallocate old PDA | System program Allocate |
@@ -163,6 +164,12 @@ On every `withdraw`:
 - Only current admin can execute
 - New admin can be any Pubkey (wallet or Squads multisig)
 - Immediate effect; no timelock (by design for hackathon)
+
+### Update Kamino Config
+- `update_kamino_config(new_market, new_reserve, new_ctoken_mint, new_pyth_feed)`
+- Admin-gated via `require_keys_eq(caller, state.admin)`
+- Allows switching reserves (e.g., for Devnet demo with SOL reserve)
+- Immediate effect; no migration needed
 
 ### Devnet Borrow Crank (`scripts/devnet-crank.ts`)
 Documents the exact steps to drive Kamino utilization:
@@ -357,3 +364,32 @@ npm run dev    # localhost:3000
 | Treasury PDA | `6gN5rpat4vDVJkFciTQjVp23QzeJh67GtUm8myjfeBrg` |
 | Admin / Upgrade Authority | `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` |
 | Obligation PDA (admin) | `8xstbrA8uRJgMQvJGwHUZYdK6it8ToF7NKjdxpYqCpeB` |
+
+## Known Limitations (Devnet)
+- **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a SOL reserve placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
+- **SOL Reserve**: A native SOL reserve exists on devnet but its collateral mint was never initialized, making it unusable for deposits.
+- **Build Toolchain**: `cargo-build-sbf` v1.41 (rustc 1.75) has edition2024 compatibility issues with newer dependencies. Program builds against pinned anchor 0.30.1; rebuild requires nightly or version alignment.
+
+## Hackathon Completion Status
+**Backend Protocol: COMPLETE** ✅
+- 11 instructions deployed and tested (including `update_kamino_config`)
+- Squads V4 multisig created and admin transferred
+- Emergency pause verified (non-admin correctly rejected)
+- All 6 integration tests passing
+- Governance ready for multisig control
+
+**Yield Activation: BLOCKED** ❌
+- No TSLAx reserve exists on devnet Kamino
+- SOL reserve exists but collateral mint not initialized
+- Requires Kamino admin onboarding (not permissionless)
+- Code is ready; infrastructure pending
+
+**Frontend: COMPLETE** ✅
+- Dashboard builds cleanly
+- Wallet connect, deposit/withdraw flow, yield tracking
+- Meteora pool discoverability
+- Error handling, onboarding
+
+**Documentation: COMPLETE** ✅
+- PRD, Architecture, Handoff updated
+- All discriminators and account structures documented

@@ -4,7 +4,7 @@ import { useAnchorWallet,
   useConnection,
   useWallet,
 } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import ConnectWalletButton from "@/components/ConnectWalletButton";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import Link from "next/link";
@@ -193,7 +193,7 @@ export default function Dashboard() {
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <ThemeToggle />
-          <WalletMultiButton />
+          <ConnectWalletButton />
         </div>
       </header>
 

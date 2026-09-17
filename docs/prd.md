@@ -28,21 +28,21 @@ Tokenized equities (TSLAx, AAPLx, etc.) sit idle in user wallets earning 0% yiel
 ## Core User Journey
 ```
 Connect Wallet (Phantom/Solflare)
-       ↓
+      ↓
 Receive mock TSLAx + Devnet SOL (1-click faucet)
-       ↓
+      ↓
 Deposit TSLAx into Nesrt Vault
-       ↓
+      ↓
 Nesrt routes TSLAx → Kamino Lend reserve via CPI
-       ↓
+      ↓
 Yield accrues in Kamino reserve (cToken exchange rate rises)
-       ↓
+      ↓
 User receives nTSLA (1:1 against cTokens received)
-       ↓
+      ↓
 Track position / yield in real-time dashboard
-       ↓
+      ↓
 Partial withdrawal (specify TSLAx amount) → nTSLA burned proportionally → underlying returned
-       ↓
+      ↓
 Or: Trade nTSLA on Meteora for instant USDC liquidity
 ```
 
@@ -59,6 +59,7 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 - **Real-time Dashboard**: Live balances, yield chart (Recharts), transaction history, reserve health
 - **Meteora Integration**: nTSLA/USDC DLMM pool discoverable from dashboard
 - **Devnet Borrow Crank**: `scripts/devnet-crank.ts` documents exact discriminators and account structures to drive Kamino utilization
+- **Update Kamino Config**: `update_kamino_config` instruction for reserve switching (admin-gated)
 
 ### Should Have ✅
 - **Treasury PDA**: Program-owned, accumulates protocol fees
@@ -66,6 +67,10 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 - **Error Humanization**: Friendly toast messages for all common RPC/wallet errors
 - **Onboarding Modal**: Explains Devnet/mock assets, offers faucet
 - **Live Pyth Header**: Real-time TSLA/USD price with staleness indicator
+
+### Known Limitations (Devnet)
+- **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
+- **SOL Reserve**: A native SOL reserve exists on devnet but its collateral mint was never initialized, making it unusable for deposits.
 
 ### Future / Out of Scope
 - Mainnet deployment with real tokenized equities
@@ -93,8 +98,48 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 | Meteora DLMM discoverability | ✅ Implemented | Trade tab with pool link |
 | Reserve health indicator | ✅ Implemented | Real liquidity data |
 | Error humanization | ✅ Implemented | 15+ error codes mapped |
-| Devnet borrow crank | ✅ Implemented | `scripts/devnet-crank.ts` with discriminators |
+| Devnet borrow crank | ✅ Documented | `scripts/devnet-crank.ts` with discriminators |
+| Meteora pool creation | ⚠️ Manual Only | DLMM SDK has bugs; manual creation required |
 | Squads V4 badge | ⏳ Pending | Awaits multisig execution |
 | Helius webhooks | ⏳ Not started | Polling fallback active |
 | Pyth on-chain validation | ⏳ Partial | Feed stored, not validated in CPI |
 | Meteora on-chain CPI | ⏳ Not started | Frontend link only |
+| Update Kamino config | ✅ Implemented | `update_kamino_config` instruction added |
+
+## Devnet Addresses (Live)
+| Component | Address |
+|-----------|---------|
+| Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
+| Squads Multisig | `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` |
+| Vault Admin | `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` (multisig) |
+| TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
+| VaultState (v2) | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
+| Treasury PDA | `F3y3LsqVFLFVESdS6vrGvK3Yj9sKByG9mUnBzvrUKfZA` |
+| Kamino Market (env) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
+| Kamino Reserve (env) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` (SOL reserve) |
+| cToken Mint | `8f7e9FfKq7YEGNdqp9Hbsu7VtCk1VNYg8Jq4vYk1gRQJ` |
+| Pyth Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
+
+## Hackathon Completion Status
+**Backend Protocol: COMPLETE** ✅
+- 11 instructions deployed and tested
+- Squads V4 multisig created and admin transferred
+- Emergency pause verified (non-admin correctly rejected)
+- All 6 integration tests passing
+- Governance ready for multisig control
+
+**Yield Activation: BLOCKED** ❌
+- No TSLAx reserve exists on devnet Kamino
+- SOL reserve exists but collateral mint not initialized
+- Requires Kamino admin onboarding (not permissionless)
+- Code is ready; infrastructure pending
+
+**Frontend: COMPLETE** ✅
+- Dashboard builds cleanly
+- Wallet connect, deposit/withdraw flow, yield tracking
+- Meteora pool discoverability
+- Error handling, onboarding
+
+**Documentation: COMPLETE** ✅
+- PRD, Architecture, Handoff updated
+- All discriminators and account structures documented

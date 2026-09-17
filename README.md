@@ -1,62 +1,64 @@
 # Nesrt — Yield Vault for Tokenized Equities (Devnet)
 
-**One-click yield abstraction for tokenized equities on Solana Devnet.**  
-Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collateral into Kamino Lend → earn lending yield → 10% performance fee to treasury → withdraw anytime or trade nTSLA on Meteora DLMM.
+**One-click yield for tokenized equities on Solana.**  
+Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collateral into Kamino Lend → earn lending yield → 10% performance fee to treasury → withdraw anytime or trade nTSLA on Meteora.
 
 ---
 
-## 🎯 Current Status (Devnet)
+## Current Status (Devnet)
 
 | Component | Status |
 |-----------|--------|
 | **Smart Contract** | ✅ Deployed: `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
-| **Vault State (v2)** | ✅ Populated: admin, pause, fee, treasury, Pyth feed |
+| **Vault State (v2)** | ✅ Populated — admin, pause, fee, treasury, Pyth feed |
 | **Kamino CPI (deposit/withdraw)** | ✅ 6/6 integration tests pass |
 | **Partial Withdrawals** | ✅ By shares, proportional yield |
-| **Emergency Pause** | ✅ `set_paused` / `VaultPaused` |
-| **Admin Transfer** | ✅ `set_admin` / `WrongAdmin` |
+| **Emergency Pause** | ✅ `set_paused` / `VaultPaused` error |
+| **Admin Transfer** | ✅ `set_admin` / `WrongAdmin` error |
 | **10% Performance Fee** | ✅ Treasury PDA, skim on withdraw |
 | **Pyth Price Feed** | ✅ Stored in VaultState |
-| **Frontend Build** | ✅ Clean (zero TS errors) |
-| **Dashboard** | ✅ Live balances, yield chart, history, health |
+| **Frontend Build** | ✅ Clean (zero TypeScript errors) |
+| **Dashboard** | ✅ Live balances, yield chart, history, reserve health |
 | **Faucet (SOL + TSLAx)** | ✅ Server route, live tested |
-| **Meteora Pool** | ⚠️ Manual creation required (SDK bugs) |
-| **Squads V4 Multisig** | ⚠️ V2 instruction blocked (SDK issue) |
-| **Real APY** | 0% (no borrows — need crank) |
+| **Meteora Pool** | ⚠️ Manual creation (DLMM SDK bugs) |
+| **Squads V4 Multisig** | ✅ Created, admin transferred, verified on-chain |
+| **Update Kamino Config** | ✅ `update_kamino_config` instruction added |
+| **Real APY** | 0% — no TSLAx reserve on devnet Kamino |
 
 ---
 
-## 🏗 Architecture
+## Architecture Overview
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Wallet    │────▶│  Nesrt Vault │────▶│ Kamino Lend │
-│  (Phantom)  │     │  (Anchor)    │     │  (CPI)      │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │  nTSLA Mint │  (1:1 vs cTokens)
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │  Meteora    │  (nTSLA/USDC DLMM)
-                    │  DLMM Pool  │
-                    └─────────────┘
+Wallet (Phantom) 
+    │
+    ▼
+Nesrt Vault (Anchor)
+    │
+    ▼
+Kamino Lend (CPI)
+    │
+    ▼
+nTSLA Mint (1:1 vs cTokens)
+    │
+    ▼
+Meteora DLMM Pool (nTSLA/USDC)
 ```
 
 ### Key PDAs (Derivable)
+
 | PDA | Seeds | Address |
 |-----|-------|---------|
-| VaultState v2 | `["vault-v2", tslax_mint]` | `GjyzrgQM...` |
-| Vault Authority | `["vault-v2-authority", tslax_mint]` | `2as7mvT...` |
-| nTSLA Mint v2 | `["receipt-mint-v2", tslax_mint]` | `GYoTAg6...` |
-| Vault TSLAx | `["vault-v2-tslax", tslax_mint]` | `Ho5YRt3...` |
-| Vault cToken | `["vault-v2-ctoken", tslax_mint]` | `DcWmEkL...` |
-| Treasury | `["treasury", tslax_mint]` | `6gN5rpa...` |
+| VaultState v2 | `["vault-v2", tslax_mint]` | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
+| Vault Authority | `["vault-v2-authority", tslax_mint]` | `2as7mvTetsHFnArTWfTJu1h4esKrpNDAqyH1zW8vsNor` |
+| nTSLA Mint v2 | `["receipt-mint-v2", tslax_mint]` | `GYoTAg6bicNQcUk2R31JUFxZieSNbm93yGHgcCTw4rjS` |
+| Vault TSLAx | `["vault-v2-tslax", tslax_mint]` | `Ho5YRt373tZkpMN4UXbyqpYbS3NhUovo2DSuMHUnEtTE` |
+| Vault cToken | `["vault-v2-ctoken", tslax_mint]` | `DcWmEkL2sbGwVynSvzR1x4YgfwCtsuEsHXokRB6sBh9j` |
+| Treasury | `["treasury", tslax_mint]` | `F3y3LsqVFLFVESdS6vrGvK3Yj9sKByG9mUnBzvrUKfZA` |
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 ```bash
 # 1. Install deps
@@ -70,6 +72,7 @@ cd app && npm run dev    # http://localhost:3000
 ```
 
 ### Smart Contract (separate terminal)
+
 ```bash
 # Build (needs solana 4.2.2 cargo-build-sbf)
 export PATH="$HOME/.local/share/solana/install/releases/stable-e29e5d910f0c2b7176f58174e592e8488099ef75/solana-release/bin:$PATH"
@@ -87,7 +90,7 @@ export ANCHOR_WALLET=$PWD/keypairs/nesrt-admin.json
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 nesrt/
@@ -100,9 +103,11 @@ nesrt/
 │   │   ├── lib/             # vault.ts, yield.ts, history.ts, errors.ts
 │   │   └── idl/vault.json   # Hand-maintained IDL
 ├── scripts/
-│   ├── devnet-crank.ts      # Kamino borrow crank (analysis + discriminators)
+│   ├── devnet-crank.ts      # Kamino borrow crank analysis + discriminators
 │   ├── create-meteora-pool.ts   # Meteora pool creation (SDK bugs)
-│   ├── create-squads-multisig.ts # Squads V4 multisig creation
+│   ├── create-squads-multisig.ts # Squads V4 multisig creation (working)
+│   ├── transfer-admin-to-multisig.ts # Admin transfer (working)
+│   ├── execute-sol-crank.ts     # SOL reserve crank attempt
 │   └── verify_*.cjs         # Phase 3 verification
 ├── tests/vault.ts           # Anchor integration tests (6/6 pass)
 ├── docs/
@@ -114,17 +119,20 @@ nesrt/
 
 ---
 
-## 🔧 Key Scripts
+## Key Scripts
 
 ```bash
-# Phase 2: Borrow crank state analysis (run after setup)
+# Phase 2: Borrow crank state analysis (shows plan + discriminators)
 npx tsx scripts/devnet-crank.ts
 
 # Phase 3: Create Meteora nTSLA/USDC pool (manual fallback documented)
 npx tsx scripts/create-meteora-pool.ts
 
-# Phase 5: Create Squads V4 multisig
+# Phase 5: Create Squads V4 multisig (works)
 npx tsx scripts/create-squads-multisig.ts
+
+# Transfer admin to multisig (works, verified on-chain)
+npx tsx scripts/transfer-admin-to-multisig.ts
 
 # Verify pause/admin logic
 node scripts/verify_phase3.cjs
@@ -133,31 +141,36 @@ node scripts/verify_pause_guard.cjs paused-deposit
 
 ---
 
-## 🔑 Devnet Addresses (Verified)
+## Devnet Addresses (Verified)
 
 | Component | Address |
 |-----------|---------|
 | TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
 | Kamino Market | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
-| Kamino Reserve | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
+| Kamino Reserve (SOL placeholder) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
 | cToken Mint | `7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU` |
 | Pyth TSLA Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
+| Squads Multisig | `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` |
 | Admin / Upgrade Authority | `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` |
 
 ---
 
-## ⚠️ Known Limitations
+## Known Limitations (Honest Assessment)
 
-1. **0% APY** — Kamino reserve has no borrows (no oracle + no crank). Run `scripts/devnet-crank.ts` for manual steps.
-2. **Squads V4** — `multisigCreateV2` instruction has NULL createKey signer; V1 deprecated.
-3. **Meteora Pool** — DLMM SDK has `binStep.toArrayLike` / `binId.divmod` bugs; manual UI creation required.
-4. **Pyth On-Chain** — Feed stored but not validated in CPI; needs pyth-sdk in program.
-5. **Helius Webhooks** — Not integrated; polling fallback in `history.ts`.
+1. **0% APY on Devnet** — No TSLAx reserve exists on devnet Kamino. The vault's config points to a SOL reserve, but the vault code requires the liquidity mint to match TSLAx, so SOL can't be deposited. This is a Kamino infrastructure gap (they haven't onboarded TSLAx on devnet), not a code issue.
+
+2. **Meteora Pool** — DLMM SDK has bugs (`binStep.toArrayLike`, `binId.divmod`); manual UI creation required. Frontend has the Trade tab link ready.
+
+3. **Pyth On-Chain** — Feed stored in VaultState but not validated in CPI; would need pyth-sdk in the program.
+
+4. **Helius Webhooks** — Not integrated; polling fallback in `history.ts`.
+
+5. **Build Toolchain** — `anchor build` has edition2024 compatibility issues; program built with `cargo-build-sbf` from solana 4.2.2. IDL is hand-maintained.
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **PRD**: `docs/prd.md` — Product requirements, user journey, status table
 - **Architecture**: `docs/architecture.md` — Full technical architecture, data flows, security model
@@ -165,10 +178,10 @@ node scripts/verify_pause_guard.cjs paused-deposit
 
 ---
 
-## 🧪 Test Results
+## Test Results
 
 ```bash
-$ anchor test
+$ ./node_modules/.bin/ts-mocha -p tsconfig.json -t 1000000 tests/vault.ts
   ✔ initializes vault state
   ✔ initializes the receipt mint
   ✔ initializes vault custody accounts
@@ -180,17 +193,17 @@ $ anchor test
 
 ---
 
-## 🔒 Security
+## Security
 
 - **PDA Authority**: All vault token accounts owned by `vault-v2-authority` PDA
 - **Signer Validation**: `invoke_signed` with explicit seeds, `kamino::verify_reserve_accounts`
 - **Treasury**: Program-owned, authority = vault PDA, fee skim on withdraw only
-- **Admin**: Single keypair (upgrade authority); `set_admin` prepares for Squads V4
+- **Admin**: Multisig controls all admin functions; `set_admin` executed, verified on-chain
 - **Pause**: Instant `is_paused` flag blocks deposit/withdraw
 - **No Private Keys in Repo**: Keypairs in `keypairs/` (gitignored), env vars for faucet
 
 ---
 
-## 📝 License
+## License
 
 MIT — Experimental Devnet software. Not audited. No mainnet value.

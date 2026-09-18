@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/vault"]
+members = ["programs/vault", "programs/mock_lender"]
 resolver = "2"
 
 [profile.release]

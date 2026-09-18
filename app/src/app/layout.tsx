@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TSLAx Vault — Wake up your sleeping capital",
   description:
-    "One-click yield on tokenized TSLA. Deposit TSLAx, earn real Kamino lending yield on Solana Devnet.",
+    "One-click yield on tokenized TSLA. Vault TSLAx, earn real lending yield on Solana Devnet.",
 };
 
 export default function RootLayout({

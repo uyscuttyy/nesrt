@@ -10,12 +10,18 @@ export type VaultEvent = {
   shares: number;
 };
 
-const DEPOSIT_RE = /deposit:\s*tslax=(\d+)\s*ctokens=(\d+)\s*ytslax=(\d+)/;
-const WITHDRAW_RE = /withdraw:\s*shares=(\d+)\s*tslax=(\d+)/;
+// Current program logs (programs/vault/src/lib.rs):
+//   "deposit: amount={} shares_minted={} ntsla_minted={}"
+//   "withdraw: shares={} tslax_out={} principal={} yield={} treasury_fee={}"
+const DEPOSIT_NEW = /deposit:\s*amount=(\d+)\s*shares_minted=(\d+)/;
+const WITHDRAW_NEW = /withdraw:\s*shares=(\d+)\s*tslax_out=(\d+)/;
+// Legacy fallbacks (old Kamino builds / tests):
+const DEPOSIT_OLD = /deposit:\s*tslax=(\d+)\s*ctokens=(\d+)\s*ytslax=(\d+)/;
+const WITHDRAW_OLD = /withdraw:\s*shares=(\d+)\s*tslax=(\d+)/;
 
 /**
  * Real user history: wallet signatures involving the vault program,
- * decoded from our own on-chain log lines. No indexer key needed.
+ * decoded from on-chain log lines. No indexer key needed.
  */
 export async function fetchVaultHistory(
   connection: Connection,
@@ -37,27 +43,51 @@ export async function fetchVaultHistory(
     );
     if (!touchesVault) continue;
     for (const line of tx.meta.logMessages) {
-      const d = line.match(DEPOSIT_RE);
-      if (d) {
+      const dNew = line.match(DEPOSIT_NEW);
+      if (dNew) {
         out.push({
           signature: s.signature,
           slot: s.slot,
           time: s.blockTime ?? null,
           kind: "deposit",
-          tslax: Number(d[1]) / 1e6,
-          shares: Number(d[3]) / 1e6,
+          tslax: Number(dNew[1]) / 1e6,
+          shares: Number(dNew[2]) / 1e6,
         });
         break;
       }
-      const w = line.match(WITHDRAW_RE);
-      if (w) {
+      const dOld = line.match(DEPOSIT_OLD);
+      if (dOld) {
+        out.push({
+          signature: s.signature,
+          slot: s.slot,
+          time: s.blockTime ?? null,
+          kind: "deposit",
+          tslax: Number(dOld[1]) / 1e6,
+          shares: Number(dOld[3]) / 1e6,
+        });
+        break;
+      }
+      const wNew = line.match(WITHDRAW_NEW);
+      if (wNew) {
         out.push({
           signature: s.signature,
           slot: s.slot,
           time: s.blockTime ?? null,
           kind: "withdraw",
-          tslax: Number(w[2]) / 1e6,
-          shares: Number(w[1]) / 1e6,
+          tslax: Number(wNew[2]) / 1e6,
+          shares: Number(wNew[1]) / 1e6,
+        });
+        break;
+      }
+      const wOld = line.match(WITHDRAW_OLD);
+      if (wOld) {
+        out.push({
+          signature: s.signature,
+          slot: s.slot,
+          time: s.blockTime ?? null,
+          kind: "withdraw",
+          tslax: Number(wOld[2]) / 1e6,
+          shares: Number(wOld[1]) / 1e6,
         });
         break;
       }

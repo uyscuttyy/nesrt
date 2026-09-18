@@ -1,24 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { KAMINO_RESERVE, TSLAX_MINT } from "../config";
+import { MOCK_LENDER_POOL, TSLAX_MINT } from "../config";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const steps = [
   {
     n: "01",
-    title: "Deposit TSLAx",
-    body: "One transaction. Your tokens move into the vault, no pools to pick, no rates to compare.",
+    title: "Vault TSLAx",
+    body: "One transaction. Your tokens go to work, no pools to pick, no rates to compare.",
   },
   {
     n: "02",
-    title: "The vault supplies Kamino",
-    body: "The program routes your TSLAx into a Kamino lending reserve on Solana Devnet and holds the interest-bearing cTokens.",
+    title: "The vault lends it out",
+    body: "The program routes your TSLAx into the Nesrt lending pool on Solana Devnet and holds yield-bearing shares.",
   },
   {
     n: "03",
-    title: "Withdraw anytime",
-    body: "Burn your receipt tokens and receive your TSLAx plus whatever the reserve earned. No lockups.",
+    title: "Unvault anytime",
+    body: "Burn your receipt tokens and receive your TSLAx plus whatever the pool earned. No lockups.",
   },
 ];
 
@@ -26,7 +26,7 @@ export default function Landing() {
   return (
     <main>
       <header className="wrap nav">
-        <span className="brand">TSLAx Vault</span>
+        <span className="brand">Nesrt Vault</span>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <ThemeToggle />
           <span className="badge">Devnet MVP</span>
@@ -37,8 +37,8 @@ export default function Landing() {
         <p className="kicker">Tokenized TSLA, at work</p>
         <h1>Wake up your sleeping capital.</h1>
         <p className="lede">
-          Your TSLAx sits idle in your wallet. Deposit it once and earn real
-          lending yield from Kamino, without managing positions, rates, or
+          Your TSLAx sits idle in your wallet. Vault it once and earn real
+          lending yield, without managing positions, rates, or
           LTVs.
         </p>
         <div className="cta-row">
@@ -72,8 +72,8 @@ export default function Landing() {
             <dd className="mono">{TSLAX_MINT || "not configured"}</dd>
           </div>
           <div>
-            <dt>Kamino reserve</dt>
-            <dd className="mono">{KAMINO_RESERVE || "not configured"}</dd>
+            <dt>Lending pool</dt>
+            <dd className="mono">{MOCK_LENDER_POOL || "not configured"}</dd>
           </div>
           <div>
             <dt>Network</dt>

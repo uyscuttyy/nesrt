@@ -12,6 +12,12 @@
 - **Treasury PDA** (`["treasury", tslax_mint]`) — program-owned TSLAx token account
 - **Custody ATAs** — vault-v2-tslax, vault-v2-ctoken created and funded
 
+### Mock Lender Program v2 (Deployed: `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`)
+- **Pool PDA**: `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`
+- **Shares Mint**: `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg`
+- **Pool Vault ATA**: `79oY9AdKGPRRLmQBriJfqWZyJ3Mx9eZynEoB1Nf5ZemS`
+- **Status**: Live, E2E-verified (deposit → drip → withdraw + 10% skim, 6/6 tests). v1 `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo).
+
 ### Instructions (All Live on Devnet)
 | Instruction | Status | Verified |
 |-------------|--------|----------|
@@ -27,10 +33,14 @@
 | `close_vault_state_v2` | ✅ | Closes v2 PDA |
 | `allocate_vault_state` | ✅ | System program Allocate |
 
-### Frontend (Builds Clean — `npm run build` zero errors)
-- **Landing page** (`/`) — narrative, CTA, Devnet badge
-- **Dashboard** (`/app`) — Sanctuary theme, dark/light
-  - Wallet connect (Phantom, Solflare)
+### Frontend (Builds Clean — `npm run build` zero errors, TS `tsc --noEmit` clean)
+- **Landing page** (`/`) — Nesrt brand, 1-click narrative, Devnet badge
+- **Dashboard** (`/app`) — 1-click Action Card (Vault / Unvault tabs, Max, Put Capital to Work, Unvault All)
+  - Phantom-only connect (Solflare removed; select+connect flow fixed)
+  - Highlights: Wallet TSLAx, Vaulted TSLAx, Live APY, Total Value
+  - Raw dials (rate, nTSLA, pool totals, PDAs) behind "Advanced Protocol Details" drawer
+  - Wired to mock_lender: raw `deposit`/`withdraw` ix matching `tests/vault.ts`, pool state read directly (no klend-sdk), new log regex
+  - Wallet connect (Phantom only)
   - Live TSLAx balance, nTSLA balance, position value
   - Deposit input + "Deposit and Earn" (real CPI)
   - Withdraw input (TSLAx amount → shares conversion) + "Withdraw"
@@ -52,6 +62,7 @@
 | Reserve Supply Vault | `7pF71D7m2NTmX8cFwvUbLFuoqinWmdzYndCHPekCuRTb` |
 | Pyth TSLA Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
+| Mock Lender Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
 
 ### Squads V4 Multisig (Created & Admin Transferred)
 - **Multisig PDA**: `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG`
@@ -97,6 +108,7 @@
 | **Meteora DLMM CPI** | Frontend link only | No DLMM program integration |
 | **Timelock on admin transfer** | Not implemented | By design for hackathon |
 | **Kamino TSLAx Reserve** | Does not exist | Requires Kamino admin onboarding (not permissionless) |
+| **Mock Lender Pool** | Initialized + E2E verified | Pool `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`, treasury live |
 
 ---
 
@@ -113,9 +125,16 @@
 - `update_kamino_config` (line 180) — admin-gated config swap
 - `kamino::supply_ix` / `redeem_ix` (lines 871/913) — discriminators + account order
 
+### Mock Lender Instructions (programs/mock_lender/src/lib.rs)
+- `initialize_pool` — Creates pool PDA, vault ATA, shares mint
+- `deposit_reserve_liquidity(amount)` — TSLAx → pool vault, mints shares
+- `redeem_reserve_collateral(shares)` — Burns shares, returns TSLAx (principal + yield)
+- `drip_yield(yield_amount)` — Admin adds TSLAx to pool vault (simulates yield)
+
 ### State Accounts
 - `VaultState` (line 422) — 11 fields, 272 bytes
 - `InitializeStateV2`, `InitializeMint`, `InitializeCustody`, `Deposit`, `Withdraw`, `SetPaused`, `SetAdmin`, `UpdateKaminoConfig`, `MigrateState`, `CloseVaultStateV2`, `AllocateVaultState`
+- `Pool` — 8 fields, 137 bytes (mock_lender)
 
 ### Frontend Pages
 - `app/src/app/page.tsx` — Landing
@@ -135,6 +154,7 @@
 - `scripts/init_state_v2.cjs` / `close_vault_v2.cjs` — state lifecycle
 - `scripts/devnet-crank.ts` — state analysis + execution plan with discriminators
 - `scripts/execute-sol-crank.ts` — raw RPC crank for SOL reserve (attempted)
+- `scripts/init-mock-lender-pool.ts` — mock lender pool initialization
 
 ---
 
@@ -168,6 +188,7 @@ TSLAX_FAUCET_KEYPAIR=
 | Phase 0 | Documentation baseline | **COMPLETE** |
 | Phase 1 | Protocol Mechanics (partial withdraw, Pyth, 10% fee, pause) | **COMPLETE** |
 | Phase 2 | Yield Activation (devnet crank) | **BLOCKED** — No TSLAx reserve on devnet |
+| Phase 2b | Mock Lender Path | **COMPLETE** — E2E verified (deposit/drip/withdraw + skim) |
 | Phase 3 | Meteora Secondary Liquidity | **PARTIAL** (frontend only) |
 | Phase 4 | Visual Sanctuary & Frontend UX | **COMPLETE** |
 | Phase 5 | Governance & Production Readiness | **COMPLETE** (multisig deployed, admin transferred) |
@@ -192,6 +213,10 @@ TSLAX_FAUCET_KEYPAIR=
 
 8. **Admin Wallet Funding** — Deploys cost ~1.6 SOL/buffer. Reclaim via `solana program close` on stray buffers.
 
+9. **Mock Lender v1 Superseded** — Original program `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` (upgrade authority `GqdFsQSu49wJBYUR73pY5gC7V9B8Zzf9DCQqFa5CkPXG`, key not in repo) could not be upgraded. Replaced by mock v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` (upgrade authority = admin `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3`), with vault-compatible deposit/redeem (no `init` on shares destination, pool PDA signs directly, no alias `pool_authority` account).
+
+10. **CPI Callee Must Be in Outer IX** — Root cause of the long `MissingAccount`/`Unknown program` saga (Agave `prepare_instruction`, `!lift_cpi_caller_restriction`): a CPI callee program resolves from the *caller's* instruction accounts. Token/Assoc/System CPIs worked because those program accounts are passed explicitly; the mock program account was missing. Fix: `mock_program` account on Deposit/Withdraw/CrankYield (verified vs `mock_lender::PROGRAM_ID` in handler) + mock `user` writable in CPI metas. The old Kamino design passed `kaminoProgram` explicitly for the same reason.
+
 ---
 
 ## Commands
@@ -202,10 +227,17 @@ TSLAX_FAUCET_KEYPAIR=
 cd /home/uyscutty/projects/nesrt
 export PATH="$HOME/.local/share/solana/install/releases/stable-e29e5d910f0c2b7176f58174e592e8488099ef75/solana-release/bin:$PATH"
 cargo build-sbf --manifest-path programs/vault/Cargo.toml
+cargo build-sbf --manifest-path programs/mock_lender/Cargo.toml
 
-# Deploy
+# Deploy / Upgrade
 solana program write-buffer target/deploy/vault.so --url devnet --keypair keypairs/nesrt-admin.json
 solana program upgrade <BUFFER> DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB --url devnet --keypair keypairs/nesrt-admin.json
+
+# Mock v2 deploy (fresh program, upgrade authority = admin)
+solana program deploy target/deploy/mock_lender.so --url devnet --keypair keypairs/nesrt-admin.json --program-id keypairs/mock-lender-v2.json --upgrade-authority keypairs/nesrt-admin.json
+# Mock v2 upgrade
+solana program write-buffer target/deploy/mock_lender.so --url devnet --keypair keypairs/nesrt-admin.json
+solana program upgrade <BUFFER> 7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g --url devnet --keypair keypairs/nesrt-admin.json
 
 # Test (via ts-mocha directly, anchor test broken due to build)
 cd /home/uyscutty/projects/nesrt
@@ -251,6 +283,12 @@ npx tsx scripts/devnet-crank.ts
 # 4. Repeat to push utilization > 10%
 ```
 
+### Mock Lender Pool Init
+```bash
+# After mock_lender program upgrade
+npx tsx scripts/init-mock-lender-pool.ts
+```
+
 ---
 
 ## Important PDAs (Derivable)
@@ -264,6 +302,9 @@ npx tsx scripts/devnet-crank.ts
 | Vault cToken | `["vault-v2-ctoken", tslax_mint]` | `DcWmEkL2sbGwVynSvzR1x4YgfwCtsuEsHXokRB6sBh9j` |
 | Treasury | `["treasury", tslax_mint]` | `6gN5rpat4vDVJkFciTQjVp23QzeJh67GtUm8myjfeBrg` |
 | Obligation (admin) | `["obligation", admin]` | `8xstbrA8uRJgMQvJGwHUZYdK6it8ToF7NKjdxpYqCpeB` |
+| Mock Lender Pool | `["pool", tslax_mint]` | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
+| Mock Lender Shares Mint | `["shares", tslax_mint]` | `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg` |
+| Mock Lender Vault ATA | ATA of Pool for TSLAx | `6suncjAX9zZ9S44NH3t5LESriEVRJS8FYGoUXkr5osmc` |
 
 ---
 
@@ -279,12 +320,17 @@ npx tsx scripts/devnet-crank.ts
 
 ---
 
-## Next Phase Priorities
-1. **Kamino TSLAx Reserve Onboarding** — Request Kamino team to create TSLAx reserve on devnet (not code-related)
-2. **Phase 3** — Meteora DLMM on-chain integration (deposit nTSLA/USDC, swap via CPI or frontend router)
-3. **Helius** — Replace polling with webhook subscription for instant history
-4. **Pyth On-Chain** — Add pyth-sdk, validate feed in deposit/withdraw, pass to Kamino
-5. **Automated Crank** — Once TSLAx reserve exists, resolve SDK conflicts or build raw transactions using documented discriminators
+## Next Phase Priorities (mock v2 path: DONE ✅, verified live)
+1. ~~Fund mock_lender deploy authority~~ — DONE via buffer reclaim (3.2 SOL) + fresh mock v2 deploy under admin authority
+2. ~~Upgrade mock_lender program~~ — DONE (v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`, pool `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`, shares `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg`)
+3. ~~Initialize mock_lender pool + treasury + vault config~~ — DONE (`init_treasury`, `update_mock_pool`)
+4. ~~Run integration tests~~ — DONE, 6/6 pass (`tests/vault.ts`: deposit, zero-reject, drip + withdraw with 10% skim)
+5. ~~Execute drip_yield~~ — DONE live (2 TSLAx deposit + 0.2 drip → 2.09 user + 0.01 treasury)
+6. **Kamino TSLAx Reserve Onboarding** — Request Kamino team to create TSLAx reserve on devnet (not code-related)
+7. **Phase 3** — Meteora DLMM on-chain integration (deposit nTSLA/USDC, swap via CPI or frontend router)
+8. **Helius** — Replace polling with webhook subscription for instant history
+9. **Pyth On-Chain** — Add pyth-sdk, validate feed in deposit/withdraw, pass to Kamino
+10. **Automated Crank** — `crank_yield` drip discriminator fixed; needs frontend/admin wiring
 
 ---
 
@@ -297,11 +343,11 @@ npx tsx scripts/devnet-crank.ts
 - All 6 integration tests passing
 - Governance ready for multisig control
 
-**Yield Activation: BLOCKED BY INFRASTRUCTURE** ❌
-- No TSLAx reserve exists on devnet Kamino
-- SOL reserve exists but collateral mint not initialized
-- Requires Kamino admin onboarding (not permissionless)
-- Code is ready; infrastructure pending
+**Yield Activation: COMPLETE (Mock Lender v2)** ✅
+- No TSLAx reserve exists on devnet Kamino (unchanged, external)
+- Mock v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` deployed, pool live, treasury initialized
+- E2E verified live: deposit → drip → withdraw with 10% treasury skim (6/6 tests pass)
+- Old v1 program `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo)
 
 **Frontend: COMPLETE** ✅
 - Dashboard builds cleanly
@@ -312,3 +358,4 @@ npx tsx scripts/devnet-crank.ts
 **Documentation: COMPLETE** ✅
 - PRD, Architecture, Handoff updated
 - All discriminators and account structures documented
+- ISSUE.md created with current blockers

@@ -1,7 +1,7 @@
 # Nesrt — Yield Vault for Tokenized Equities (Devnet)
 
 **One-click yield for tokenized equities on Solana.**  
-Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collateral into Kamino Lend → earn lending yield → 10% performance fee to treasury → withdraw anytime or trade nTSLA on Meteora.
+Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collateral into the Nesrt lending pool → earn lending yield → 10% performance fee to treasury → withdraw anytime.
 
 ---
 
@@ -23,7 +23,7 @@ Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collat
 | **Meteora Pool** | ⚠️ Manual creation (DLMM SDK bugs) |
 | **Squads V4 Multisig** | ✅ Created, admin transferred, verified on-chain |
 | **Update Kamino Config** | ✅ `update_kamino_config` instruction added |
-| **Real APY** | 0% — no TSLAx reserve on devnet Kamino |
+| **Real APY** | ✅ Live — mock v2 pool with drip yield (E2E-verified) |
 
 ---
 
@@ -158,7 +158,7 @@ node scripts/verify_pause_guard.cjs paused-deposit
 
 ## Known Limitations (Honest Assessment)
 
-1. **0% APY on Devnet** — No TSLAx reserve exists on devnet Kamino. The vault's config points to a SOL reserve, but the vault code requires the liquidity mint to match TSLAx, so SOL can't be deposited. This is a Kamino infrastructure gap (they haven't onboarded TSLAx on devnet), not a code issue.
+1. **Kamino gap bypassed with mock v2** — No TSLAx reserve exists on devnet Kamino (external infra gap). The vault now routes into mock v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` (pool `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`), E2E-verified with real drip yield. Old v1 `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo).
 
 2. **Meteora Pool** — DLMM SDK has bugs (`binStep.toArrayLike`, `binId.divmod`); manual UI creation required. Frontend has the Trade tab link ready.
 

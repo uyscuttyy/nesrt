@@ -3,19 +3,17 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useEffect, useState } from "react";
 
+/** Phantom-only connect button. Uses the wallet-adapter select+connect flow. */
 export default function ConnectWalletButton() {
-  const { connected, publicKey, select, wallets } = useWallet();
+  const { connected, connecting, publicKey, select, connect, disconnect, wallets } = useWallet();
   const [mounted, setMounted] = useState(false);
   const [phantomInstalled, setPhantomInstalled] = useState(false);
-  const [solflareInstalled, setSolflareInstalled] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     if (typeof window !== "undefined") {
-      const phantom = (window as any).phantom?.solana;
-      const solflare = (window as any).solflare?.isSolflare;
+      const phantom = (window as unknown as { phantom?: { solana?: { isPhantom?: boolean } } }).phantom?.solana;
       setPhantomInstalled(!!phantom?.isPhantom);
-      setSolflareInstalled(!!solflare);
     }
   }, []);
 
@@ -30,12 +28,13 @@ export default function ConnectWalletButton() {
   }
 
   if (connected && publicKey) {
-    const short = publicKey.toBase58().slice(0, 4) + "…" + publicKey.toBase58().slice(-4);
+    const addr = publicKey.toBase58();
+    const short = addr.length > 12 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
     return (
       <div className="wallet-connected">
         <span className="wallet-dot" aria-hidden="true" />
         <span className="wallet-address">{short}</span>
-        <button className="wallet-disconnect" onClick={() => select(null)} aria-label="Disconnect wallet">
+        <button className="wallet-disconnect" onClick={() => void disconnect()} aria-label="Disconnect Phantom">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M17 17L7 7M7 17L17 7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -44,61 +43,39 @@ export default function ConnectWalletButton() {
     );
   }
 
-  const phantomWallet = wallets.find(w => w.adapter.name === "Phantom");
-  const solflareWallet = wallets.find(w => w.adapter.name === "Solflare");
-
-  const handleConnect = async (walletAdapter: typeof phantomWallet) => {
-    if (walletAdapter) {
-      await walletAdapter.adapter.connect();
+  async function handleConnect() {
+    try {
+      const phantom = wallets.find((w) => w.adapter.name === "Phantom");
+      if (phantom) select(phantom.adapter.name);
+      // select() then connect() is the supported flow; direct adapter.connect() bypasses state.
+      await connect();
+    } catch {
+      /* user rejected or Phantom locked — wallet-adapter surfaces it, stay idle */
     }
-  };
+  }
+
+  if (!phantomInstalled) {
+    return (
+      <a className="wallet-btn wallet-btn--primary" href="https://phantom.app/" target="_blank" rel="noreferrer">
+        <span>Get Phantom</span>
+      </a>
+    );
+  }
 
   return (
     <div className="wallet-connect-group">
-      {phantomInstalled && phantomWallet && (
-        <button
-          className="wallet-btn wallet-btn--primary"
-          onClick={() => handleConnect(phantomWallet)}
-          aria-label="Connect with Phantom"
-        >
-          <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHBhdGggZD0iTTE2IDJjLjU1IDAgMS4wNC4yMiAxLjQxLjU5bC0yLjI3IDIuMjdhMTUuMDYgMTUuMDYgMCAwIDEgLTEuMDYgMS4wNmwtNC41OCA0LjU4YTE1LjA2IDE1LjA2IDAgMCAxLTIuMTIgMGMtLjM2IDAtLjcxLjEyLTEgLjM0bC0yLjU3IDIuNTdhMTUuMDYgMTUuMDYgMCAwIDAgMS4wNiAxLjA2bDQuNTggNC41OGEyLjUgMi41IDAgMCAwIDMuNTQgMGw0LjU4LTQuNThjMS40Mi0xLjQyIDEuNDItMy43MSAwLTUuMTNsLTIuNTctMi41N2ExNS4wNiAxNS4wNiAwIDAgMC0xLjA2LTFMOC45IDkuNjRhMTUuMDYgMTUuMDYgMCAwIDEgMC0yLjEybDIuMjctMi4yN2ExNS4wNiAxNS4wNiAwIDAgMSAwLTIuMTJsLTQuNTgtNC41OGEyLjUgMi41IDAgMCAwLTMuNTQgMGwtNC41OCA0LjU4YTE1LjA2IDE1LjA2IDAgMCAwIDEuMDYgMS4wNmw0LjU4IDQuNThjMS40MiAxLjQyIDMuNzEgMS40MiA1LjEzIDBsMi41NyAyLjU3YzEuNDEgMS40MSAzLjcxIDEuNDEgNS4xMyAwbDQuNTggNC41OGMxLjQyIDEuNDIgMy43MSAxLjQyIDUuMTMgMGwyLjU3LTIuNTdjMS40MS0xLjQxIDEuNDEtMy43MSAwLTUuMTNsLTQuNTgtNC41OGMtMS40Mi0xLjQyLTMuNzEtMS40Mi01LjEzIDBsLTIuNTcgMi41N2MtLjI5LS4yOS0uNTUtLjYzLS44NC0xbC00LjU4IDQuNThjLTEuNDItMS40Mi0zLjcxLTEuNDItNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42My0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy43MS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42My0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy43MS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy43MS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy43MS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjU3LTIuNTdjLS4yOS0uMjktLjU1LS42Mi0uODQtMWwtNC41OCA0LjU4Yy0xLjQyLTEuNDItMy4zMS0xLjQtNS4xMyAwbC0yLjUzLz4KPC9zdmc+" alt="Phantom" />
-          <span>Phantom</span>
-          <span className="wallet-badge">Recommended</span>
-        </button>
-      )}
-
-      {solflareInstalled && solflareWallet && (
-        <button
-          className="wallet-btn wallet-btn--secondary"
-          onClick={() => handleConnect(solflareWallet)}
-          aria-label="Connect with Solflare"
-        >
-          <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="#00C896" />
-            <path d="M8 16L14 22L24 8" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>Solflare</span>
-        </button>
-      )}
-
-      {wallets.length > 0 && (
-        <button
-          className="wallet-btn wallet-btn--tertiary"
-          onClick={() => {
-            const modal = document.querySelector('[data-wallet-modal]');
-            if (modal) (modal as any).open?.();
-          }}
-          aria-label="More wallets"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-          <span>More</span>
-        </button>
-      )}
+      <button
+        className="wallet-btn wallet-btn--primary"
+        onClick={() => void handleConnect()}
+        disabled={connecting}
+        aria-label="Connect with Phantom"
+      >
+        <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="currentColor" opacity="0.2" />
+          <path d="M9 11c0-1 1-2 2-2h10c1 0 2 1 2 2v4c0 3-2 5-4 6l-3 2-3-2c-2-1-4-3-4-6v-4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        </svg>
+        <span>{connecting ? "Connecting…" : "Connect Phantom"}</span>
+      </button>
     </div>
   );
 }

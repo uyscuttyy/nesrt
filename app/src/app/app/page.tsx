@@ -1,23 +1,19 @@
 "use client";
 
-import { useAnchorWallet,
-  useConnection,
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { TSLAX_MINT } from "../../config";
-import { fetchReserveSnapshot } from "../../yield";
+import { fetchPoolSnapshot, PoolSnapshot } from "../../yield";
 import { fetchVaultHistory, VaultEvent } from "../../history";
 import { friendlyError } from "../../errors";
 import {
   buildDepositTx,
   buildWithdrawTx,
   deriveAddresses,
-  getProgram,
   toBaseUnits,
   toUiAmount,
   tokenBalance,
@@ -29,33 +25,31 @@ import YieldChart from "@/components/YieldChart";
 
 type Balances = {
   tslax: bigint | null;
-  ytslax: bigint | null;
-  rate: number | null;
+  ntsla: bigint | null;
 };
 
 /**
- * Sanctuary dashboard: real balances, real deposits/withdrawals
- * against the deployed vault program, live position value from the
- * on-chain Kamino cToken exchange rate, yield chart, and real
- * transaction history. Nothing is simulated.
+ * Sanctuary: 1-click vault. Connect Phantom -> put TSLAx to work -> unvault anytime.
+ * Raw protocol dials live behind "Advanced Protocol Details".
  */
 export default function Dashboard() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
-  const anchorWallet = useAnchorWallet();
-  const [balances, setBalances] = useState<Balances>({ tslax: null, ytslax: null, rate: null });
+  const [balances, setBalances] = useState<Balances>({ tslax: null, ntsla: null });
+  const [pool, setPool] = useState<PoolSnapshot | null>(null);
   const [amount, setAmount] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [tab, setTab] = useState<"vault" | "unvault">("vault");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<VaultEvent[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [providerState, setProviderState] = useState("checking");
   const { toasts, push, dismiss } = useToasts();
 
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>;
-    if (w.solana || w.phantom) setProviderState("solana provider detected");
-    else setProviderState("no Solana provider detected in this browser");
+    if (w.phantom) setProviderState("Phantom detected");
+    else setProviderState("Phantom not detected in this browser — install Phantom to continue");
   }, []);
 
   const refresh = useCallback(async () => {
@@ -63,14 +57,13 @@ export default function Dashboard() {
     try {
       const tslaxMint = new PublicKey(TSLAX_MINT);
       const { receiptMint } = deriveAddresses();
-      const [tslax, ytslax, snap] = await Promise.all([
+      const [tslax, ntsla, snap] = await Promise.all([
         tokenBalance(connection, getAssociatedTokenAddressSync(tslaxMint, publicKey)),
-        tokenBalance(connection, getAssociatedTokenAddressSync(receiptMint, publicKey)).catch(
-          () => null
-        ),
-        fetchReserveSnapshot().catch(() => null),
+        tokenBalance(connection, getAssociatedTokenAddressSync(receiptMint, publicKey)).catch(() => null),
+        fetchPoolSnapshot(connection).catch(() => null),
       ]);
-      setBalances({ tslax, ytslax, rate: snap ? snap.rate : null });
+      setBalances({ tslax, ntsla });
+      if (snap) setPool(snap);
     } catch (e) {
       push(friendlyError(e));
     }
@@ -95,9 +88,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!connected || !publicKey) return;
     try {
-      if (!localStorage.getItem(`tslax-onboarded-${publicKey.toBase58()}`)) {
-        setShowOnboarding(true);
-      }
+      if (!localStorage.getItem(`nesrt-onboarded-${publicKey.toBase58()}`)) setShowOnboarding(true);
     } catch {
       setShowOnboarding(true);
     }
@@ -105,7 +96,7 @@ export default function Dashboard() {
 
   function closeOnboarding() {
     try {
-      if (publicKey) localStorage.setItem(`tslax-onboarded-${publicKey.toBase58()}`, "1");
+      if (publicKey) localStorage.setItem(`nesrt-onboarded-${publicKey.toBase58()}`, "1");
     } catch {
       /* ignore */
     }
@@ -118,7 +109,6 @@ export default function Dashboard() {
       const { sig } = await build();
       await connection.confirmTransaction(sig, "confirmed");
       setAmount("");
-      setWithdrawAmount("");
       await refresh();
       await refreshHistory();
     } catch (e) {
@@ -128,44 +118,43 @@ export default function Dashboard() {
     }
   }
 
-  function onDeposit() {
-    if (!publicKey || !anchorWallet) return;
+  function onPutToWork() {
+    if (!publicKey) return;
     const parsed = Number(amount);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       push("Enter an amount greater than zero.");
       return;
     }
     void submit(async () => {
-      const program = getProgram(connection, anchorWallet);
-      const { tx } = await buildDepositTx(program, publicKey, toBaseUnits(parsed));
+      const { tx } = await buildDepositTx(connection, publicKey, toBaseUnits(parsed));
       const sig = await sendTransaction(tx, connection);
       return { sig };
     });
   }
 
-  function onWithdraw() {
-    if (!publicKey || !anchorWallet) return;
-    if (balances.ytslax === null || balances.ytslax === 0n) {
-      push("No vault position to withdraw.");
+  function onUnvault(full: boolean) {
+    if (!publicKey) return;
+    if (balances.ntsla === null || balances.ntsla === 0n) {
+      push("No vault position to unvault.");
       return;
     }
-    let shares = balances.ytslax;
-    const parsed = withdrawAmount.trim() === "" ? NaN : Number(withdrawAmount);
-    if (!Number.isNaN(parsed)) {
+    let shares = balances.ntsla;
+    if (!full) {
+      const parsed = Number(amount);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        push("Enter a withdraw amount greater than zero.");
+        push("Enter an amount greater than zero.");
         return;
       }
-      if (balances.rate === null || balances.rate <= 0) {
+      if (!pool || pool.rate <= 0) {
         push("Live rate is unavailable. Try again in a moment.");
         return;
       }
-      const wanted = BigInt(Math.floor((parsed * 10 ** 6) / balances.rate));
+      const wanted = BigInt(Math.floor((parsed * 10 ** 6) / pool.rate));
       if (wanted <= 0n) {
-        push("That amount is too small to withdraw.");
+        push("That amount is too small to unvault.");
         return;
       }
-      if (wanted > balances.ytslax) {
+      if (wanted > balances.ntsla) {
         push("That amount is more than your vault position.");
         return;
       }
@@ -173,23 +162,41 @@ export default function Dashboard() {
     }
     const finalShares = shares;
     void submit(async () => {
-      const program = getProgram(connection, anchorWallet);
-      const tx = await buildWithdrawTx(program, publicKey, finalShares);
+      const tx = await buildWithdrawTx(connection, publicKey, finalShares);
       const sig = await sendTransaction(tx, connection);
       return { sig };
     });
   }
 
+  function useMax() {
+    if (tab === "vault") {
+      if (balances.tslax !== null) setAmount(toUiAmount(balances.tslax).toString());
+    } else if (positionValue !== null) {
+      setAmount(positionValue.toString());
+    }
+  }
+
+  const rate = pool?.rate ?? null;
+  const apy = pool?.apyPct ?? null;
   const positionValue =
-    balances.ytslax !== null && balances.rate !== null
-      ? toUiAmount(balances.ytslax) * balances.rate
+    balances.ntsla !== null && rate !== null ? toUiAmount(balances.ntsla) * rate : null;
+  const totalValue =
+    positionValue !== null
+      ? positionValue + (balances.tslax !== null ? toUiAmount(balances.tslax) : 0)
       : null;
+
+  let advanced: ReturnType<typeof deriveAddresses> | null = null;
+  try {
+    advanced = deriveAddresses();
+  } catch {
+    advanced = null;
+  }
 
   return (
     <main className="wrap sanctuary">
       <header className="nav">
         <Link className="brand" href="/">
-          TSLAx Vault
+          Nesrt Vault
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <ThemeToggle />
@@ -197,69 +204,109 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <h1>The Sanctuary</h1>
+      <h1>Put your stocks to work.</h1>
 
       {!connected ? (
         <>
-          <p className="muted">
-            Connect a Devnet wallet to deposit TSLAx and watch yield accrue.
-          </p>
+          <p className="muted">Connect Phantom to vault TSLAx and earn lending yield. No numbers to manage.</p>
           <p className="fine">{providerState}.</p>
         </>
       ) : (
         <div>
           <p>
-            <span className="dot" /> Connected {shortKey(publicKey?.toBase58() ?? "")}
+            <span className="dot" /> Connected {shortKey(publicKey?.toBase58() ?? "")} · Phantom
           </p>
+
           <div className="cards">
             <div className="card">
               <span className="label">Wallet TSLAx</span>
               <strong>{fmt(balances.tslax)}</strong>
             </div>
             <div className="card accent-card">
-              <span className="label">Vault position</span>
-              <strong>
-                {positionValue === null ? "—" : `${positionValue.toFixed(6)} TSLAx`}
-              </strong>
-              <span className="fine">
-                {balances.ytslax === null
-                  ? "no position"
-                  : `${toUiAmount(balances.ytslax).toFixed(6)} yTSLAx`}
-                {balances.rate !== null ? ` at rate ${balances.rate.toFixed(6)}` : ""}
-              </span>
+              <span className="label">Vaulted TSLAx</span>
+              <strong>{positionValue === null ? "—" : `${positionValue.toFixed(6)} TSLAx`}</strong>
+              <span className="fine">Working in the lending pool. Withdraw anytime.</span>
+            </div>
+            <div className="card">
+              <span className="label">Live APY</span>
+              <strong>{apy === null ? "—" : `${apy.toFixed(2)}%`}</strong>
+            </div>
+            <div className="card">
+              <span className="label">Total Value</span>
+              <strong>{totalValue === null ? "—" : `${totalValue.toFixed(6)} TSLAx`}</strong>
             </div>
           </div>
+
           <YieldChart value={positionValue} />
-          <div className="actions">
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="any"
-              placeholder="Amount in TSLAx"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={busy}
-            />
-            <button className="cta" onClick={onDeposit} disabled={busy}>
-              {busy ? "Working" : "Deposit and Earn"}
-            </button>
+
+          <div className="card" style={{ marginTop: "1rem" }}>
+            <div className="actions" style={{ marginTop: 0 }}>
+              <button className={tab === "vault" ? "cta" : "ghost"} onClick={() => setTab("vault")} disabled={busy}>
+                Vault
+              </button>
+              <button className={tab === "unvault" ? "cta" : "ghost"} onClick={() => setTab("unvault")} disabled={busy}>
+                Unvault Capital
+              </button>
+            </div>
+            <div className="actions">
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={tab === "vault" ? "Amount of TSLAx to Vault" : "Amount to unvault, empty for full"}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={busy}
+                style={{ fontSize: "1.15rem", fontWeight: 600 }}
+              />
+              <button className="ghost" onClick={useMax} disabled={busy}>
+                Max
+              </button>
+            </div>
+            {tab === "vault" ? (
+              <div className="actions">
+                <button className="cta" onClick={onPutToWork} disabled={busy}>
+                  {busy ? "Working…" : "Put Capital to Work"}
+                </button>
+              </div>
+            ) : (
+              <div className="actions">
+                <button className="cta" onClick={() => onUnvault(false)} disabled={busy}>
+                  {busy ? "Working…" : "Unvault Capital"}
+                </button>
+                <button className="ghost" onClick={() => onUnvault(true)} disabled={busy}>
+                  Unvault All
+                </button>
+              </div>
+            )}
+            <p className="fine">One click. No pools, rates, or LTVs to manage.</p>
           </div>
-          <div className="actions">
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="any"
-              placeholder="Withdraw amount, empty for full"
-              value={withdrawAmount}
-              onChange={(e) => setWithdrawAmount(e.target.value)}
-              disabled={busy}
-            />
-            <button className="ghost" onClick={onWithdraw} disabled={busy}>
-              Withdraw
+
+          <div className="card" style={{ marginTop: "1rem" }}>
+            <button className="ghost" onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? "Hide Advanced Protocol Details" : "Show Advanced Protocol Details"}
             </button>
+            {showAdvanced ? (
+              <div className="mono" style={{ marginTop: "1rem", display: "grid", gap: "0.5rem" }}>
+                <div>Exchange rate: {rate === null ? "—" : rate.toFixed(6)} TSLAx per nTSLA</div>
+                <div>nTSLA balance: {balances.ntsla === null ? "—" : toUiAmount(balances.ntsla).toFixed(6)}</div>
+                <div>Pool deposits: {pool ? toUiAmount(pool.totalDepositsBase).toFixed(6) : "—"} TSLAx</div>
+                <div>Pool shares: {pool ? toUiAmount(pool.totalSharesBase).toFixed(6) : "—"}</div>
+                <div>Pool yield accrued: {pool ? toUiAmount(pool.yieldAccruedBase).toFixed(6) : "—"} TSLAx</div>
+                {advanced ? (
+                  <>
+                    <div>Vault state: {advanced.vaultState.toBase58()}</div>
+                    <div>Vault authority: {advanced.authority.toBase58()}</div>
+                    <div>Receipt mint: {advanced.receiptMint.toBase58()}</div>
+                    <div>Mock pool: {advanced.mockPool.toBase58()}</div>
+                    <div>Shares mint: {advanced.sharesMint.toBase58()}</div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+
           <HistoryTimeline events={history} />
         </div>
       )}
@@ -280,12 +327,12 @@ export default function Dashboard() {
 function HistoryTimeline({ events }: { events: VaultEvent[] }) {
   if (events.length === 0) return null;
   return (
-    <div className="card">
+    <div className="card" style={{ marginTop: "1rem" }}>
       <span className="label">Transaction history</span>
       <ul className="timeline">
         {events.map((e) => (
           <li key={e.signature}>
-            <strong>{e.kind === "deposit" ? "Deposit" : "Withdraw"}</strong>{" "}
+            <strong>{e.kind === "deposit" ? "Vaulted" : "Unvaulted"}</strong>{" "}
             <span className="muted">{e.tslax.toFixed(6)} TSLAx</span>{" "}
             <a
               className="fine"

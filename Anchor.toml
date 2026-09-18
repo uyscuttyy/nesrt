@@ -4,9 +4,11 @@ skip-lint = false
 
 [programs.devnet]
 vault = "DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB"
+mock_lender = "7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g"
 
 [programs.localnet]
 vault = "DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB"
+mock_lender = "7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g"
 
 [provider]
 cluster = "devnet"

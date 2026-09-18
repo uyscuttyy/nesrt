@@ -71,6 +71,7 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 ### Known Limitations (Devnet)
 - **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
 - **SOL Reserve**: A native SOL reserve exists on devnet but its collateral mint was never initialized, making it unusable for deposits.
+- **Mock Lender (Active)**: Deployed lightweight Anchor program (`7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`) simulating Kamino CPI interface. E2E-verified live (deposit → mock_lender → nTSLA mint, drip → withdraw → principal + yield, 10% treasury skim; 6/6 tests pass).
 
 ### Future / Out of Scope
 - Mainnet deployment with real tokenized equities
@@ -107,6 +108,7 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 | Update Kamino config | ✅ Implemented | `update_kamino_config` instruction added |
 
 ## Devnet Addresses (Live)
+
 | Component | Address |
 |-----------|---------|
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
@@ -119,6 +121,10 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 | Kamino Reserve (env) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` (SOL reserve) |
 | cToken Mint | `8f7e9FfKq7YEGNdqp9Hbsu7VtCk1VNYg8Jq4vYk1gRQJ` |
 | Pyth Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
+| Mock Lender Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
+| Mock Lender Pool PDA | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
+| Mock Lender Shares Mint | `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg` |
+| Mock Lender Vault ATA | `6suncjAX9zZ9S44NH3t5LESriEVRJS8FYGoUXkr5osmc` |
 
 ## Hackathon Completion Status
 **Backend Protocol: COMPLETE** ✅
@@ -128,15 +134,18 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 - All 6 integration tests passing
 - Governance ready for multisig control
 
-**Yield Activation: BLOCKED** ❌
+**Yield Activation: COMPLETE (Mock Lender v2)** ✅
 - No TSLAx reserve exists on devnet Kamino
 - SOL reserve exists but collateral mint not initialized
-- Requires Kamino admin onboarding (not permissionless)
-- Code is ready; infrastructure pending
+- Mock lender deployed at `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`
+- Mock v2 deployed, pool + treasury initialized, vault config updated
+- E2E verified live with real yield + 10% skim
 
 **Frontend: COMPLETE** ✅
-- Dashboard builds cleanly
-- Wallet connect, deposit/withdraw flow, yield tracking
+- Dashboard builds cleanly (`next build` + `tsc --noEmit`)
+- Phantom-only connect, 1-click Vault/Unvault card, APY + totals up front, advanced drawer
+- Frontend rewired from Kamino to mock_lender (Anchor.toml `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`)
+- Error handling, onboarding
 - Meteora pool discoverability
 - Error handling, onboarding
 

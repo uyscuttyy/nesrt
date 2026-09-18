@@ -8,6 +8,11 @@ nesrt/
 │       ├── Cargo.toml
 │       └── src/
 │           └── lib.rs         # All instructions + state
+├── programs/
+│   └── mock_lender/           # Mock Kamino CPI (Rust)
+│       ├── Cargo.toml
+│       └── src/
+│           └── lib.rs         # initialize_pool, deposit, redeem, drip_yield
 ├── app/                       # Next.js 14 frontend
 │   ├── package.json
 │   ├── tsconfig.json
@@ -42,7 +47,8 @@ nesrt/
 │   ├── verify_phase3.cjs
 │   ├── verify_pause_guard.cjs
 │   ├── test_init_custody.cjs
-│   └── devnet-crank.ts           # Borrow crank with discriminators
+│   ├── devnet-crank.ts           # Borrow crank with discriminators
+│   └── init-mock-lender-pool.ts  # Mock lender pool init
 ├── tests/
 │   └── vault.ts                # Anchor integration tests (6/6 pass)
 ├── docs/
@@ -182,6 +188,27 @@ Documents the exact steps to drive Kamino utilization:
 - Full account structures and execution sequence provided
 - SDK version conflicts prevent automated execution; manual steps documented
 
+## Mock Lender CPI Integration
+- **Program**: `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` (Devnet)
+- **Deposit discriminator**: `[169, 201, 30, 126, 6, 205, 102, 68]` (depositReserveLiquidity)
+- **Redeem discriminator**: `[234, 117, 181, 125, 185, 142, 220, 29]` (redeemReserveCollateral)
+- **Drip Yield discriminator**: `[234, 117, 181, 125, 185, 142, 220, 29]` (drip_yield)
+- **Account order** (from mock_lender program):
+  1. Owner (signer, readonly)
+  2. Pool (writable)
+  3. Shares mint (writable)
+  4. User destination (writable)
+  5. Token program (readonly)
+  6. Instruction sysvar (readonly)
+
+### Mock Lender Instructions
+| Instruction | Purpose |
+|-------------|---------|
+| `initialize_pool` | Creates pool PDA, vault ATA, shares mint |
+| `deposit_reserve_liquidity(amount)` | TSLAx → pool vault, mints shares |
+| `redeem_reserve_collateral(shares)` | Burns shares, returns TSLAx (principal + yield) |
+| `drip_yield(yield_amount)` | Admin adds TSLAx to pool vault (simulates yield) |
+
 ## Off-Chain Architecture (`app/`)
 
 ### Next.js 14 App Router
@@ -190,17 +217,17 @@ Documents the exact steps to drive Kamino utilization:
 - `/api/faucet` — Server route, signs with faucet keypair
 
 ### Wallet Integration
-- `@solana/wallet-adapter-react` + `wallet-adapter-wallets`
-- Phantom, Solflare adapters
-- `WalletMultiButton` for connection UI
-- `useAnchorWallet` for signing Anchor transactions
+- `@solana/wallet-adapter-react` + Phantom only (`PhantomWalletAdapter`)
+- Solflare / all other wallets removed by design
+- `select(name)` + `connect()` flow (direct `adapter.connect()` bypasses state and broke connecting)
+- `useWallet.sendTransaction` for vault ix
 
 ### Data Layer
 | Module | Purpose | Source |
 |--------|---------|--------|
-| `vault.ts` | `deriveAddresses`, `buildDepositTx`, `buildWithdrawTx`, `getProgram` | Anchor IDL + on-chain |
-| `yield.ts` | `fetchReserveSnapshot()` → `{rate, totalAvailable, cTokenSupply}` | `Reserve.fetch` via `@solana/kit` |
-| `history.ts` | `fetchVaultHistory()` → parsed deposit/withdraw events | `getSignaturesForAddress` + log parsing |
+| `vault.ts` | `deriveAddresses`, `buildDepositTx`, `buildWithdrawTx` (raw ix, mock_lender order) | On-chain PDAs + ATAs |
+| `yield.ts` | `fetchPoolSnapshot()` → `{rate, apyPct, totals}` from mock Pool bytes | Mock pool account |
+| `history.ts` | `fetchVaultHistory()` with new `amount=/shares_minted=` + `tslax_out=` regex + legacy fallback | RPC signature parsing |
 | `errors.ts` | `friendlyError()` maps 15+ error codes | Anchor error codes + wallet/RPC patterns |
 | `config.ts` | All addresses from `NEXT_PUBLIC_*` env vars | `.env.local` |
 
@@ -228,10 +255,10 @@ Documents the exact steps to drive Kamino utilization:
 User Wallet (TSLAx)
        ↓ SPL transfer
 Vault TSLAx Custody (PDA)
-       ↓ CPI: supplyReserveLiquidity
-Kamino Reserve (liquidity++) → cTokens minted to Vault cToken Custody
-       ↓ cToken delta measured
-nTSLA Mint (PDA authority) → User nTSLA ATA (1:1 vs cToken delta)
+       ↓ CPI: supplyReserveLiquidity (Kamino) OR depositReserveLiquidity (mock_lender)
+Kamino Reserve / Mock Lender Pool
+       ↓ cToken / Shares delta measured
+nTSLA Mint (PDA authority) → User nTSLA ATA (1:1 vs delta)
        ↓ UI refresh
 Dashboard shows: Vaulted TSLAx, nTSLA balance, Position Value = nTSLA × rate
 ```
@@ -242,7 +269,7 @@ User specifies TSLAx amount OR nTSLA shares
        ↓ Convert to shares if TSLAx amount (shares = amount / rate)
        ↓ Burn nTSLA from User ATA
        ↓ CPI: redeemReserveCollateral (shares)
-Kamino Reserve: cTokens burned → TSLAx released to Vault TSLAx Custody
+Kamino Reserve / Mock Lender Pool: cTokens/Shares burned → TSLAx released to Vault TSLAx Custody
        ↓ Measure TSLAx delta
 Calculate yield = delta - principal_equivalent
 fee = yield × 1000 / 10000
@@ -335,6 +362,12 @@ cargo build-sbf --manifest-path Cargo.toml  # via solana 4.2.2 cargo-build-sbf
 solana program write-buffer target/deploy/vault.so
 solana program upgrade <buffer> <program-id>
 
+# Mock lender
+cd programs/mock_lender
+cargo build-sbf --manifest-path Cargo.toml
+solana program write-buffer target/deploy/mock_lender.so
+solana program upgrade <buffer> <program-id>
+
 # IDL (hand-maintained, discriminators sha256-verified)
 cp target/idl/vault.json app/src/idl/vault.json
 cp target/types/vault.ts app/src/../types/vault.ts
@@ -364,11 +397,16 @@ npm run dev    # localhost:3000
 | Treasury PDA | `6gN5rpat4vDVJkFciTQjVp23QzeJh67GtUm8myjfeBrg` |
 | Admin / Upgrade Authority | `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` |
 | Obligation PDA (admin) | `8xstbrA8uRJgMQvJGwHUZYdK6it8ToF7NKjdxpYqCpeB` |
+| Mock Lender Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
+| Mock Lender Pool PDA | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
+| Mock Lender Shares Mint | `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg` |
+| Mock Lender Vault ATA | `6suncjAX9zZ9S44NH3t5LESriEVRJS8FYGoUXkr5osmc` |
 
 ## Known Limitations (Devnet)
 - **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a SOL reserve placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
 - **SOL Reserve**: A native SOL reserve exists on devnet but its collateral mint was never initialized, making it unusable for deposits.
 - **Build Toolchain**: `cargo-build-sbf` v1.41 (rustc 1.75) has edition2024 compatibility issues with newer dependencies. Program builds against pinned anchor 0.30.1; rebuild requires nightly or version alignment.
+- **Mock Lender (Active)**: Deployed lightweight Anchor program (`7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`) simulating Kamino CPI interface. E2E-verified live (deposit → mock_lender → nTSLA mint, drip → withdraw → principal + yield, 10% treasury skim; 6/6 tests pass).
 
 ## Hackathon Completion Status
 **Backend Protocol: COMPLETE** ✅
@@ -378,11 +416,12 @@ npm run dev    # localhost:3000
 - All 6 integration tests passing
 - Governance ready for multisig control
 
-**Yield Activation: BLOCKED** ❌
+**Yield Activation: COMPLETE (Mock Lender v2)** ✅
 - No TSLAx reserve exists on devnet Kamino
 - SOL reserve exists but collateral mint not initialized
-- Requires Kamino admin onboarding (not permissionless)
-- Code is ready; infrastructure pending
+- Mock lender deployed at `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`
+- Mock v2 deployed, pool + treasury initialized, vault config updated
+- E2E verified live with real yield + 10% skim
 
 **Frontend: COMPLETE** ✅
 - Dashboard builds cleanly

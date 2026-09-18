@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
     instruction::{AccountMeta, Instruction},
     program::invoke_signed,
+    sysvar::instructions::Instructions,
 };
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 
@@ -9,52 +10,43 @@ declare_id!("DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB");
 
 /// TSLAx Yield Vault (Devnet MVP).
 ///
-/// Custodies user TSLAx in a vault PDA and routes it into a Kamino Lend
-/// reserve via CPI. Receipt token yTSLAx tracks each depositor's share.
-///
-/// Phase 3: state + PDAs + initialize. Deposit (Phase 4) / withdraw (Phase 5).
+/// Custodies user TSLAx in a vault PDA and routes it into a Mock Lender
+/// reserve via CPI. Receipt token nTSLA tracks each depositor's share.
 #[program]
 pub mod vault {
     use super::*;
 
-    /// Initialize vault state for a given TSLAx mint and Kamino reserve.
-    /// Split from account creation (initialize_accounts) to keep each
-    /// instruction frame under the 4 KiB stack limit.
+    /// Initialize vault state for a given TSLAx mint and Mock Lender pool.
     pub fn initialize_state(ctx: Context<InitializeState>) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
         state.admin = ctx.accounts.admin.key();
         state.tslax_mint = ctx.accounts.tslax_mint.key();
         state.receipt_mint = ctx.accounts.receipt_mint.key();
-        state.kamino_market = ctx.accounts.kamino_market.key();
-        state.kamino_reserve = ctx.accounts.kamino_reserve.key();
-        state.kamino_ctoken_mint = ctx.accounts.ctoken_mint.key();
+        state.mock_lender_pool = ctx.accounts.mock_lender_pool.key();
+        state.mock_lender_shares_mint = ctx.accounts.mock_lender_shares_mint.key();
         state.pyth_price_feed = ctx.accounts.pyth_price_feed.key();
         state.authority_bump = ctx.bumps.vault_authority;
         state.state_bump = ctx.bumps.vault_state;
         state.is_paused = false;
+        state.protocol_fee_bps = 1000;
         msg!(
-            "vault state initialized: tslax={} market={} reserve={}",
+            "vault state initialized: tslax={} pool={} shares={}",
             state.tslax_mint,
-            state.kamino_market,
-            state.kamino_reserve
+            state.mock_lender_pool,
+            state.mock_lender_shares_mint
         );
         Ok(())
     }
 
     /// Admin-only instruction to close the old vault state PDA.
-    /// Called when program is upgraded and VaultState struct changes.
-    /// Returns rent to admin; next initialize_state_v2 will recreate with new layout.
     pub fn migrate_state(ctx: Context<MigrateState>) -> Result<()> {
         let vault_state_info = &ctx.accounts.vault_state;
-        
-        // Verify this is the correct vault state by checking discriminator
         let data = vault_state_info.try_borrow_data()?;
         require!(data.len() >= 8, VaultError::MathError);
         let expected_disc: [u8; 8] = [228, 196, 82, 165, 98, 210, 235, 152];
         require!(&data[0..8] == expected_disc, VaultError::MathError);
         drop(data);
 
-        // Close the old vault state PDA (return rent to admin)
         let lamports = vault_state_info.lamports();
         **vault_state_info.try_borrow_mut_lamports()? = 0;
         **ctx.accounts.admin.try_borrow_mut_lamports()? = ctx
@@ -64,28 +56,21 @@ pub mod vault {
             .checked_add(lamports)
             .ok_or(VaultError::MathError)?;
 
-        // Mark account as closed by zeroing discriminator
-        {
-            let mut data_mut = vault_state_info.try_borrow_mut_data()?;
-            data_mut[0..8].fill(0);
-        }
+        let mut data_mut = vault_state_info.try_borrow_mut_data()?;
+        data_mut[0..8].fill(0);
 
         msg!("vault state PDA closed; re-run initialize_state_v2 to recreate with new layout");
         Ok(())
     }
 
-    /// Close the vault-v2 state PDA (for reinitialization).
     pub fn close_vault_state_v2(ctx: Context<CloseVaultStateV2>) -> Result<()> {
         let vault_state_info = &ctx.accounts.vault_state;
-        
-        // Verify this is the correct vault state by checking discriminator
         let data = vault_state_info.try_borrow_data()?;
         require!(data.len() >= 8, VaultError::MathError);
         let expected_disc: [u8; 8] = [228, 196, 82, 165, 98, 210, 235, 152];
         require!(&data[0..8] == expected_disc, VaultError::MathError);
         drop(data);
 
-        // Close the vault-v2 state PDA (return rent to admin)
         let lamports = vault_state_info.lamports();
         **vault_state_info.try_borrow_mut_lamports()? = 0;
         **ctx.accounts.admin.try_borrow_mut_lamports()? = ctx
@@ -95,18 +80,13 @@ pub mod vault {
             .checked_add(lamports)
             .ok_or(VaultError::MathError)?;
 
-        // Mark account as closed by zeroing discriminator
-        {
-            let mut data_mut = vault_state_info.try_borrow_mut_data()?;
-            data_mut[0..8].fill(0);
-        }
+        let mut data_mut = vault_state_info.try_borrow_mut_data()?;
+        data_mut[0..8].fill(0);
 
         msg!("vault state v2 PDA closed; re-run initialize_state_v2 to recreate");
         Ok(())
     }
 
-    /// Flip the emergency pause flag. Admin-gated; single key or multisig
-    /// authority (Squads V4) can sign as `admin` since only the key matters.
     pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
         require_keys_eq!(
@@ -119,28 +99,27 @@ pub mod vault {
         Ok(())
     }
 
-    /// Transfer vault authority to a new admin (e.g. a Squads V4 multisig).
-    /// Only the current admin can do this; effects apply immediately.
-    pub fn set_admin(ctx: Context<SetAdmin>) -> Result<()> {
+    pub fn set_admin(ctx: Context<SetAdmin>, new_admin: Pubkey) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
         require_keys_eq!(
             ctx.accounts.admin.key(),
             state.admin,
             VaultError::WrongAdmin
         );
-        state.admin = ctx.accounts.new_admin.key();
-        msg!("vault admin={}", state.admin);
+        state.admin = new_admin;
+        msg!(
+            "vault admin updated: old={} new={}",
+            ctx.accounts.admin.key(),
+            new_admin
+        );
         Ok(())
     }
 
-    /// Update Kamino market and reserve configuration. Admin-gated.
-    /// Allows switching to a different reserve (e.g. SOL reserve for Devnet demo).
-    pub fn update_kamino_config(
-        ctx: Context<UpdateKaminoConfig>,
-        new_market: Pubkey,
-        new_reserve: Pubkey,
-        new_ctoken_mint: Pubkey,
-        new_pyth_feed: Pubkey,
+    pub fn update_kamino_config(        ctx: Context<UpdateKaminoConfig>,
+        new_kamino_market: Pubkey,
+        new_kamino_reserve: Pubkey,
+        new_kamino_ctoken_mint: Pubkey,
+        new_kamino_pyth_feed: Pubkey,
     ) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
         require_keys_eq!(
@@ -148,83 +127,73 @@ pub mod vault {
             state.admin,
             VaultError::WrongAdmin
         );
-        
-        state.kamino_market = new_market;
-        state.kamino_reserve = new_reserve;
-        state.kamino_ctoken_mint = new_ctoken_mint;
-        state.pyth_price_feed = new_pyth_feed;
-        
+        state.kamino_market = new_kamino_market;
+        state.kamino_reserve = new_kamino_reserve;
+        state.kamino_ctoken_mint = new_kamino_ctoken_mint;
+        state.pyth_price_feed = new_kamino_pyth_feed;
         msg!(
-            "vault kamino config updated: market={} reserve={} ctoken={} pyth={}",
-            new_market, new_reserve, new_ctoken_mint, new_pyth_feed
+            "kamino config updated: market={} reserve={} ctoken={} pyth={}",
+            new_kamino_market,
+            new_kamino_reserve,
+            new_kamino_ctoken_mint,
+            new_kamino_pyth_feed
         );
         Ok(())
     }
 
-    /// Initialize vault state v2 for a given TSLAx mint and Kamino reserve.
-    /// Uses different PDA seed "vault-v2" to avoid conflict with old PDA.
-    pub fn initialize_state_v2(ctx: Context<InitializeStateV2>) -> Result<()> {
+    /// Admin-only: point the vault at a (new) mock lender pool + shares mint.
+    /// Needed when the lending program is redeployed (pool PDA changes).
+    pub fn update_mock_pool(
+        ctx: Context<UpdateMockPool>,
+        new_pool: Pubkey,
+        new_shares_mint: Pubkey,
+    ) -> Result<()> {
         let state = &mut ctx.accounts.vault_state;
-        state.admin = ctx.accounts.admin.key();
-        state.tslax_mint = ctx.accounts.tslax_mint.key();
-        state.receipt_mint = ctx.accounts.receipt_mint.key();
-        state.kamino_market = ctx.accounts.kamino_market.key();
-        state.kamino_reserve = ctx.accounts.kamino_reserve.key();
-        state.kamino_ctoken_mint = ctx.accounts.ctoken_mint.key();
-        state.pyth_price_feed = ctx.accounts.pyth_price_feed.key();
-        state.authority_bump = ctx.bumps.vault_authority;
-        state.state_bump = ctx.bumps.vault_state;
-        state.is_paused = false;
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            state.admin,
+            VaultError::WrongAdmin
+        );
+        state.mock_lender_pool = new_pool;
+        state.mock_lender_shares_mint = new_shares_mint;
         msg!(
-            "vault state v2 initialized: tslax={} market={} reserve={}",
-            state.tslax_mint,
-            state.kamino_market,
-            state.kamino_reserve
+            "mock pool updated: pool={} shares={}",
+            new_pool,
+            new_shares_mint
         );
         Ok(())
     }
 
-    /// Create the vault's TSLAx + cToken custody accounts. Admin-gated via
-    /// state; mints verified against state in-handler to keep try_accounts
-    /// small.
-    pub fn init_custody(ctx: Context<InitializeCustody>) -> Result<()> {
+    /// Admin-only: create the treasury token PDA that receives the 10% fee.
+    pub fn init_treasury(ctx: Context<InitTreasury>) -> Result<()> {
+        msg!(
+            "treasury initialized: {}",
+            ctx.accounts.treasury.key()
+        );
+        Ok(())
+    }
+
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        require!(amount > 0, VaultError::ZeroAmount);
         let state = &ctx.accounts.vault_state;
+        require!(!state.is_paused, VaultError::VaultPaused);
+
+        // Verify mock lender accounts
+        require_keys_eq!(
+            ctx.accounts.mock_lender_pool.key(),
+            state.mock_lender_pool,
+            VaultError::WrongMarket
+        );
+        require_keys_eq!(
+            ctx.accounts.mock_lender_shares_mint.key(),
+            state.mock_lender_shares_mint,
+            VaultError::WrongCollateralMint
+        );
         require_keys_eq!(
             ctx.accounts.tslax_mint.key(),
             state.tslax_mint,
             VaultError::WrongLiquidityMint
         );
-        require_keys_eq!(
-            ctx.accounts.ctoken_mint.key(),
-            state.kamino_ctoken_mint,
-            VaultError::WrongCollateralMint
-        );
-        msg!("vault custody accounts initialized");
-        Ok(())
-    }
-
-    /// Create the yTSLAx receipt mint (authority = vault authority PDA).
-    /// Account creation via init constraint; handler records nothing.
-    pub fn initialize_mint(_ctx: Context<InitializeMint>) -> Result<()> {
-        msg!("vault receipt mint initialized");
-        Ok(())
-    }
-
-    /// Deposit TSLAx: custody transfer, Kamino supply CPI, mint yTSLAx 1:1
-    /// against the cTokens the reserve issued for this deposit.
-    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
-        require!(amount > 0, VaultError::ZeroAmount);
-        let state = &ctx.accounts.vault_state;
-        require!(!state.is_paused, VaultError::VaultPaused);
-        kamino::verify_reserve_accounts(
-            state,
-            &ctx.accounts.kamino_market,
-            &ctx.accounts.kamino_reserve,
-            &ctx.accounts.lending_market_authority,
-            &ctx.accounts.reserve_liquidity_mint,
-            &ctx.accounts.reserve_collateral_mint,
-            &ctx.accounts.kamino_program,
-        )?;
 
         // 1. User TSLAx -> vault custody.
         token::transfer(
@@ -239,169 +208,269 @@ pub mod vault {
             amount,
         )?;
 
-        // 2. Supply to Kamino via CPI, vault authority as owner/signer.
-        let c_before = ctx.accounts.vault_ctoken.amount;
+        // 2. Supply to Mock Lender via CPI, vault authority as owner/signer.
+        // Vault-scoped: source = vault TSLAx custody (already funded in step 1),
+        // destination = vault shares custody, pool vault receives the liquidity.
+        // NOTE: mock_program must be an explicit account of this instruction:
+        // without lift_cpi_caller_restriction the runtime resolves CPI callees
+        // from the caller's instruction accounts ("Unknown program" otherwise).
+        let shares_before = ctx.accounts.vault_shares.amount;
         let auth_mint = state.tslax_mint;
         let auth_bump = state.authority_bump;
         let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
+        require_keys_eq!(
+            ctx.accounts.mock_program.key(),
+            mock_lender::PROGRAM_ID,
+            VaultError::WrongMarket
+        );
         invoke_signed(
-            &kamino::supply_ix(
+            &mock_lender::deposit_ix(
                 amount,
                 &ctx.accounts.vault_authority.key(),
-                &ctx.accounts.kamino_reserve.key(),
-                &ctx.accounts.kamino_market.key(),
-                &ctx.accounts.lending_market_authority.key(),
-                &ctx.accounts.reserve_liquidity_mint.key(),
-                &ctx.accounts.reserve_collateral_mint.key(),
-                &ctx.accounts.reserve_liquidity_supply.key(),
-                &ctx.accounts.vault_ctoken.key(),
+                &ctx.accounts.tslax_mint.key(),
+                &ctx.accounts.mock_lender_pool.key(),
+                &ctx.accounts.vault_tslax.key(),
+                &ctx.accounts.pool_vault.key(),
+                &ctx.accounts.mock_lender_shares_mint.key(),
+                &ctx.accounts.vault_shares.key(),
                 &ctx.accounts.token_program.key(),
             ),
             &[
                 ctx.accounts.vault_authority.to_account_info(),
-                ctx.accounts.kamino_reserve.to_account_info(),
-                ctx.accounts.kamino_market.to_account_info(),
-                ctx.accounts.lending_market_authority.to_account_info(),
-                ctx.accounts.reserve_liquidity_mint.to_account_info(),
-                ctx.accounts.reserve_collateral_mint.to_account_info(),
-                ctx.accounts.reserve_liquidity_supply.to_account_info(),
-                ctx.accounts.vault_ctoken.to_account_info(),
+                ctx.accounts.tslax_mint.to_account_info(),
+                ctx.accounts.mock_lender_pool.to_account_info(),
+                ctx.accounts.vault_tslax.to_account_info(),
+                ctx.accounts.pool_vault.to_account_info(),
+                ctx.accounts.mock_lender_shares_mint.to_account_info(),
+                ctx.accounts.vault_shares.to_account_info(),
                 ctx.accounts.token_program.to_account_info(),
-                ctx.accounts.instruction_sysvar.to_account_info(),
             ],
             &[seeds],
         )?;
 
-        // 3. Verify Kamino minted cTokens for this deposit.
-        let c_after = ctx.accounts.vault_ctoken.reload()?.amount;
-        let c_minted = c_after.checked_sub(c_before).ok_or(VaultError::MathError)?;
-        require!(c_minted > 0, VaultError::NoCollateralMinted);
+        // 3. Verify Mock Lender minted shares for this deposit.
+        ctx.accounts.vault_shares.reload()?;
+        let shares_after = ctx.accounts.vault_shares.amount;
+        let shares_minted = shares_after
+            .checked_sub(shares_before)
+            .ok_or(VaultError::MathError)?;
+        require!(shares_minted > 0, VaultError::NoCollateralMinted);
 
-        // 4. Mint yTSLAx 1:1 against cTokens received.
+        // 4. Mint nTSLA 1:1 against shares received.
+        let receipt_mint_account = ctx.accounts.receipt_mint.to_account_info();
         token::mint_to(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 MintTo {
-                    mint: ctx.accounts.receipt_mint.to_account_info(),
+                    mint: receipt_mint_account,
                     to: ctx.accounts.user_receipt.to_account_info(),
                     authority: ctx.accounts.vault_authority.to_account_info(),
                 },
                 &[seeds],
             ),
-            c_minted,
+            shares_minted,
         )?;
 
         msg!(
-            "deposit: amount={} c_minted={} ytslax_minted={}",
-            amount, c_minted, c_minted
+            "deposit: amount={} shares_minted={} ntsla_minted={}",
+            amount, shares_minted, shares_minted
         );
+
+        // 5. Update vault state accounting (principal + shares).
+        let state = &mut ctx.accounts.vault_state;
+        state.total_deposits = state
+            .total_deposits
+            .checked_add(amount)
+            .ok_or(VaultError::MathError)?;
+        state.total_shares = state
+            .total_shares
+            .checked_add(shares_minted)
+            .ok_or(VaultError::MathError)?;
         Ok(())
     }
 
-    /// Withdraw TSLAx: burn yTSLAx, redeem cTokens from Kamino, transfer TSLAx.
-    pub fn withdraw(ctx: Context<Withdraw>, ytslax_amount: u64) -> Result<()> {
-        require!(ytslax_amount > 0, VaultError::ZeroAmount);
+    pub fn withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
+        require!(shares > 0, VaultError::ZeroAmount);
         let state = &ctx.accounts.vault_state;
         require!(!state.is_paused, VaultError::VaultPaused);
-        kamino::verify_reserve_accounts(
-            state,
-            &ctx.accounts.kamino_market,
-            &ctx.accounts.kamino_reserve,
-            &ctx.accounts.lending_market_authority,
-            &ctx.accounts.reserve_liquidity_mint,
-            &ctx.accounts.reserve_collateral_mint,
-            &ctx.accounts.kamino_program,
-        )?;
 
-        // 1. Burn yTSLAx from user.
-        let auth_mint = state.tslax_mint;
-        let auth_bump = state.authority_bump;
-        let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
+        // Verify mock lender accounts
+        require_keys_eq!(
+            ctx.accounts.mock_lender_pool.key(),
+            state.mock_lender_pool,
+            VaultError::WrongMarket
+        );
+        require_keys_eq!(
+            ctx.accounts.mock_lender_shares_mint.key(),
+            state.mock_lender_shares_mint,
+            VaultError::WrongCollateralMint
+        );
+        require_keys_eq!(
+            ctx.accounts.mock_program.key(),
+            mock_lender::PROGRAM_ID,
+            VaultError::WrongMarket
+        );
+
+        // 1. Burn nTSLA from user.
         token::burn(
-            CpiContext::new_with_signer(
+            CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
                 Burn {
                     mint: ctx.accounts.receipt_mint.to_account_info(),
                     from: ctx.accounts.user_receipt.to_account_info(),
-                    authority: ctx.accounts.vault_authority.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
                 },
-                &[seeds],
             ),
-            ytslax_amount,
+            shares,
         )?;
 
-        // 2. Redeem cTokens from Kamino via CPI.
-        let c_before = ctx.accounts.vault_ctoken.amount;
+        // 2. Redeem from Mock Lender via CPI into vault custody.
+        // Vault-scoped: burn vault shares, pool vault sends TSLAx to vault custody.
+        let vault_tslax_before = ctx.accounts.vault_tslax.amount;
+        let auth_mint = state.tslax_mint;
+        let auth_bump = state.authority_bump;
+        let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
         invoke_signed(
-            &kamino::redeem_ix(
-                ytslax_amount,
+            &mock_lender::redeem_ix(
+                shares,
                 &ctx.accounts.vault_authority.key(),
-                &ctx.accounts.kamino_market.key(),
-                &ctx.accounts.kamino_reserve.key(),
-                &ctx.accounts.lending_market_authority.key(),
-                &ctx.accounts.reserve_liquidity_mint.key(),
-                &ctx.accounts.reserve_collateral_mint.key(),
-                &ctx.accounts.reserve_liquidity_supply.key(),
-                &ctx.accounts.vault_ctoken.key(),
-                &ctx.accounts.user_tslax.key(),
+                &ctx.accounts.tslax_mint.key(),
+                &ctx.accounts.mock_lender_pool.key(),
+                &ctx.accounts.vault_shares.key(),
+                &ctx.accounts.pool_vault.key(),
+                &ctx.accounts.mock_lender_shares_mint.key(),
+                &ctx.accounts.vault_tslax.key(),
                 &ctx.accounts.token_program.key(),
             ),
             &[
                 ctx.accounts.vault_authority.to_account_info(),
-                ctx.accounts.kamino_market.to_account_info(),
-                ctx.accounts.kamino_reserve.to_account_info(),
-                ctx.accounts.lending_market_authority.to_account_info(),
-                ctx.accounts.reserve_liquidity_mint.to_account_info(),
-                ctx.accounts.reserve_collateral_mint.to_account_info(),
-                ctx.accounts.reserve_liquidity_supply.to_account_info(),
-                ctx.accounts.vault_ctoken.to_account_info(),
-                ctx.accounts.user_tslax.to_account_info(),
+                ctx.accounts.tslax_mint.to_account_info(),
+                ctx.accounts.mock_lender_pool.to_account_info(),
+                ctx.accounts.vault_shares.to_account_info(),
+                ctx.accounts.pool_vault.to_account_info(),
+                ctx.accounts.mock_lender_shares_mint.to_account_info(),
+                ctx.accounts.vault_tslax.to_account_info(),
                 ctx.accounts.token_program.to_account_info(),
-                ctx.accounts.instruction_sysvar.to_account_info(),
             ],
             &[seeds],
         )?;
 
-        // 3. Verify Kamino released liquidity for this redeem.
-        let c_after = ctx.accounts.vault_ctoken.reload()?.amount;
-        let c_redeemed = c_before.checked_sub(c_after).ok_or(VaultError::MathError)?;
-        require!(c_redeemed > 0, VaultError::NoLiquidityRedeemed);
+        // 3. Verify Mock Lender delivered TSLAx to vault custody (balance grows).
+        ctx.accounts.vault_tslax.reload()?;
+        let vault_tslax_after = ctx.accounts.vault_tslax.amount;
+        let tslax_redeemed = vault_tslax_after
+            .checked_sub(vault_tslax_before)
+            .ok_or(VaultError::MathError)?;
+        require!(tslax_redeemed > 0, VaultError::NoLiquidityRedeemed);
+
+        // 4. Calculate yield portion and skim 10% to treasury.
+        let principal_portion = (shares as u128)
+            .checked_mul(state.total_deposits as u128)
+            .ok_or(VaultError::MathError)?
+            .checked_div(state.total_shares.max(1) as u128)
+            .ok_or(VaultError::MathError)? as u64;
+
+        let yield_portion = tslax_redeemed.saturating_sub(principal_portion);
+        let treasury_fee = yield_portion
+            .checked_mul(state.protocol_fee_bps as u64)
+            .ok_or(VaultError::MathError)?
+            .checked_div(10000)
+            .ok_or(VaultError::MathError)?;
+
+        if treasury_fee > 0 {
+            // Transfer fee from vault custody to treasury
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault_tslax.to_account_info(),
+                        to: ctx.accounts.treasury.to_account_info(),
+                        authority: ctx.accounts.vault_authority.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                treasury_fee,
+            )?;
+        }
+
+        // 5. Pay the user their share (redeemed less the treasury fee).
+        let user_payout = tslax_redeemed
+            .checked_sub(treasury_fee)
+            .ok_or(VaultError::MathError)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_tslax.to_account_info(),
+                    to: ctx.accounts.user_tslax.to_account_info(),
+                    authority: ctx.accounts.vault_authority.to_account_info(),
+                },
+                &[seeds],
+            ),
+            user_payout,
+        )?;
+
+        // 6. Update vault state accounting.
+        let state = &mut ctx.accounts.vault_state;
+        state.total_deposits = state.total_deposits.saturating_sub(principal_portion);
+        state.total_shares = state
+            .total_shares
+            .checked_sub(shares)
+            .ok_or(VaultError::MathError)?;
+        state.total_yield_skimmed = state
+            .total_yield_skimmed
+            .checked_add(treasury_fee)
+            .ok_or(VaultError::MathError)?;
 
         msg!(
-            "withdraw: ytslax_burned={} c_redeemed={}",
-            ytslax_amount, c_redeemed
+            "withdraw: shares={} tslax_out={} principal={} yield={} treasury_fee={}",
+            shares, user_payout, principal_portion, yield_portion, treasury_fee
         );
         Ok(())
     }
-}
 
-/// Persistent vault configuration, PDA seeds: [b"vault", tslax_mint].
-#[account]
-pub struct VaultState {
-    /// Admin authority (can update reserve config).
-    pub admin: Pubkey,
-    /// The mock TSLAx SPL mint users deposit.
-    pub tslax_mint: Pubkey,
-    /// yTSLAx receipt mint (vault authority PDA is mint authority).
-    pub receipt_mint: Pubkey,
-    /// Kamino lending market this vault routes into.
-    pub kamino_market: Pubkey,
-    /// Kamino TSLAx reserve within the market.
-    pub kamino_reserve: Pubkey,
-    /// Kamino cToken mint of the TSLAx reserve (vault's yield position).
-    pub kamino_ctoken_mint: Pubkey,
-    /// Bump for the vault authority PDA (signs token + CPI ops).
-    pub authority_bump: u8,
-    /// Bump for this state PDA.
-    pub state_bump: u8,
-    /// Emergency pause flag. When true, deposit/withdraw are halted.
-    pub is_paused: bool,
-    /// Pyth price feed account for the reserve oracle.
-    pub pyth_price_feed: Pubkey,
-}
+    pub fn crank_yield(ctx: Context<CrankYield>) -> Result<()> {
+        let state = &ctx.accounts.vault_state;
+        require!(!state.is_paused, VaultError::VaultPaused);
 
-impl VaultState {
-    pub const SPACE: usize = 8 + 32 * 8 + 1 + 1 + 1;
+        // Invoke mock_lender's drip_yield to simulate yield accrual
+        let auth_mint = state.tslax_mint;
+        let auth_bump = state.authority_bump;
+        let seeds: &[&[u8]] = &[b"vault-v2-authority", auth_mint.as_ref(), &[auth_bump]];
+        
+        let drip_amount = 100_000_000u64; // 100 TSLAx (6 decimals) per crank
+        
+        let ix = Instruction {
+            program_id: mock_lender::PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new_readonly(ctx.accounts.admin.key(), true),
+                AccountMeta::new(state.mock_lender_pool, false),
+                AccountMeta::new(ctx.accounts.admin_tslax.key(), false),
+                AccountMeta::new(ctx.accounts.mock_lender_vault.key(), false),
+                AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+            ],
+            data: {
+                let mut data = mock_lender::DRIP_DISC.to_vec(); // drip_yield discriminator
+                data.extend_from_slice(&drip_amount.to_le_bytes());
+                data
+            },
+        };
+
+        invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.admin.to_account_info(),
+                ctx.accounts.mock_lender_pool.to_account_info(),
+                ctx.accounts.admin_tslax.to_account_info(),
+                ctx.accounts.mock_lender_vault.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
+            ],
+            &[seeds],
+        )?;
+
+        msg!("crank_yield: dripped={}", drip_amount);
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -409,40 +478,44 @@ pub struct InitializeState<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// The mock TSLAx mint created in Phase 2.
-    pub tslax_mint: Box<Account<'info, Mint>>,
-    /// CHECK: recorded for the deposit/withdraw CPI; owned by the KLend
-    /// program on devnet. Validated by use, not by type.
-    pub kamino_market: UncheckedAccount<'info>,
-    /// CHECK: recorded for the deposit/withdraw CPI. Validated by use.
-    pub kamino_reserve: UncheckedAccount<'info>,
-    /// The Kamino cToken mint of the TSLAx reserve (Phase 2 output).
-    pub ctoken_mint: Box<Account<'info, Mint>>,
-    /// The yTSLAx receipt mint (created by initialize_accounts).
-    /// CHECK: recorded as state.receipt_mint; existence enforced at use.
-    pub receipt_mint: UncheckedAccount<'info>,
-    /// Pyth price feed account for the mock TSLAx asset (Devnet).
-    /// CHECK: validated by Pyth program; stored for reserve config updates.
-    pub pyth_price_feed: UncheckedAccount<'info>,
-
     #[account(
         init,
         payer = admin,
         space = VaultState::SPACE,
-        seeds = [b"vault", tslax_mint.key().as_ref()],
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
         bump,
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
 
-    /// Signing PDA for all vault-owned token accounts and Kamino CPI.
-    /// CHECK: PDA derived from seeds below; no data stored.
     #[account(
-        seeds = [b"vault-authority", tslax_mint.key().as_ref()],
+        init,
+        payer = admin,
+        space = 8,
+        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
         bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
 
+    #[account(
+        init,
+        payer = admin,
+        mint::decimals = 6,
+        mint::authority = vault_authority,
+        mint::freeze_authority = vault_authority,
+        seeds = [b"receipt", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub receipt_mint: Box<Account<'info, Mint>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+
+    pub mock_lender_pool: UncheckedAccount<'info>,
+    pub mock_lender_shares_mint: UncheckedAccount<'info>,
+    pub pyth_price_feed: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -450,24 +523,14 @@ pub struct MigrateState<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: existing vault state account with old layout; we manually migrate it.
-    /// PDA derived from [b"vault", tslax_mint.key().as_ref()].
     #[account(
         mut,
-        seeds = [b"vault", tslax_mint.key().as_ref()],
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
         bump,
-        constraint = vault_state.owner == &crate::ID,
     )]
     pub vault_state: UncheckedAccount<'info>,
 
-    /// The mock TSLAx mint - needed for PDA derivation.
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    /// Pyth price feed account for the mock TSLAx asset (Devnet).
-    /// CHECK: validated by Pyth program; stored for reserve config updates.
-    pub pyth_price_feed: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
+    pub tslax_mint: Box<Account<'info, Mint>>,
 }
 
 #[derive(Accounts)]
@@ -475,237 +538,206 @@ pub struct CloseVaultStateV2<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: existing vault state v2 account; we manually close it.
-    /// PDA derived from [b"vault-v2", tslax_mint.key().as_ref()].
     #[account(
         mut,
         seeds = [b"vault-v2", tslax_mint.key().as_ref()],
         bump,
-        constraint = vault_state.owner == &crate::ID,
     )]
     pub vault_state: UncheckedAccount<'info>,
 
-    /// The mock TSLAx mint - needed for PDA derivation.
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct AllocateVaultState<'info> {
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    #[account(
-        init,
-        payer = admin,
-        space = VaultState::SPACE,
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump,
-    )]
-    pub vault_state: Account<'info, VaultState>,
-
-    /// The mock TSLAx mint created in Phase 2.
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    /// Pyth price feed account for the mock TSLAx asset (Devnet).
-    /// CHECK: validated by Pyth program; stored for reserve config updates.
-    pub pyth_price_feed: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeStateV2<'info> {
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    /// The mock TSLAx mint created in Phase 2.
     pub tslax_mint: Box<Account<'info, Mint>>,
-    /// CHECK: recorded for the deposit/withdraw CPI; owned by the KLend
-    /// program on devnet. Validated by use, not by type.
-    pub kamino_market: UncheckedAccount<'info>,
-    /// CHECK: recorded for the deposit/withdraw CPI. Validated by use.
-    pub kamino_reserve: UncheckedAccount<'info>,
-    /// The Kamino cToken mint of the TSLAx reserve (Phase 2 output).
-    pub ctoken_mint: Box<Account<'info, Mint>>,
-    /// The yTSLAx receipt mint (created by initialize_accounts).
-    /// CHECK: recorded as state.receipt_mint; existence enforced at use.
-    pub receipt_mint: UncheckedAccount<'info>,
-    /// Pyth price feed account for the mock TSLAx asset (Devnet).
-    /// CHECK: validated by Pyth program; stored for reserve config updates.
-    pub pyth_price_feed: UncheckedAccount<'info>,
-
-    #[account(
-        init,
-        payer = admin,
-        space = VaultState::SPACE,
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump,
-    )]
-    pub vault_state: Account<'info, VaultState>,
-
-    /// Signing PDA for all vault-owned token accounts and Kamino CPI.
-    /// CHECK: PDA derived from seeds below; no data stored.
-    #[account(
-        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
-        bump,
-    )]
-    pub vault_authority: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeCustody<'info> {
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    #[account(
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
-
-    /// The mock TSLAx mint.
-    pub tslax_mint: Box<Account<'info, Mint>>,
-    /// The Kamino cToken mint of the TSLAx reserve.
-    pub ctoken_mint: Box<Account<'info, Mint>>,
-
-    /// CHECK: vault's TSLAx custody ATA (created by this ix).
-    #[account(
-        init,
-        payer = admin,
-        associated_token::mint = tslax_mint,
-        associated_token::authority = vault_authority,
-    )]
-    pub vault_tslax: Box<Account<'info, TokenAccount>>,
-
-    /// CHECK: vault's cToken custody ATA (created by this ix).
-    #[account(
-        init,
-        payer = admin,
-        associated_token::mint = ctoken_mint,
-        associated_token::authority = vault_authority,
-    )]
-    pub vault_ctoken: Box<Account<'info, TokenAccount>>,
-
-    /// Vault authority PDA (signer for ATA creation).
-    /// CHECK: PDA derived from [b"vault-v2-authority", tslax_mint].
-    #[account(
-        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
-        bump = vault_state.authority_bump,
-    )]
-    pub vault_authority: UncheckedAccount<'info>,
-
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
-    pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeMint<'info> {
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    #[account(
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
-
-    /// The mock TSLAx mint.
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    /// The yTSLAx receipt mint (created here).
-    #[account(
-        init,
-        payer = admin,
-        mint::decimals = 6,
-        mint::authority = vault_authority,
-        mint::freeze_authority = vault_authority,
-        seeds = [b"receipt-mint-v2", tslax_mint.key().as_ref()],
-        bump,
-    )]
-    pub receipt_mint: Box<Account<'info, Mint>>,
-
-    /// Vault authority PDA (mint authority).
-    /// CHECK: PDA derived from [b"vault-v2-authority", tslax_mint].
-    #[account(
-        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
-        bump = vault_state.authority_bump,
-    )]
-    pub vault_authority: UncheckedAccount<'info>,
-
-    pub token_program: Program<'info, Token>,
-    pub rent: Sysvar<'info, Rent>,
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct SetPaused<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
-
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub admin: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct SetAdmin<'info> {
-    #[account(
-        mut,
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
-
-    pub tslax_mint: UncheckedAccount<'info>,
-
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// The new admin (can be a Squads V4 multisig PDA).
-    pub new_admin: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct UpdateKaminoConfig<'info> {
     #[account(
         mut,
         seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
-
-    pub tslax_mint: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub admin: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct Deposit<'info> {
-    #[account(
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
+        bump,
     )]
     pub vault_state: Box<Account<'info, VaultState>>,
 
     pub tslax_mint: Box<Account<'info, Mint>>,
+}
+
+#[derive(Accounts)]
+pub struct SetAdmin<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateKaminoConfig<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+}
+
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
+        bump = vault_state.authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = user_tslax.mint == tslax_mint.key(),
+        constraint = user_tslax.owner == user.key(),
+    )]
+    pub user_tslax: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = vault_tslax.mint == tslax_mint.key(),
+        constraint = vault_tslax.owner == vault_authority.key(),
+    )]
+    pub vault_tslax: Box<Account<'info, TokenAccount>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    pub mock_lender_pool: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub mock_lender_shares_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        constraint = vault_shares.mint == mock_lender_shares_mint.key(),
+        constraint = vault_shares.owner == vault_authority.key(),
+    )]
+    pub vault_shares: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = receipt_mint.key() == vault_state.receipt_mint,
+    )]
+    pub receipt_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = receipt_mint,
+        associated_token::authority = user,
+    )]
+    pub user_receipt: Box<Account<'info, TokenAccount>>,
+
+    /// Mock pool's TSLAx vault (receives liquidity on deposit).
+    #[account(mut)]
+    pub pool_vault: Box<Account<'info, TokenAccount>>,
+
+    /// Mock lender program: must be present so the runtime can resolve the
+    /// CPI callee from this instruction's accounts.
+    /// CHECK: verified against mock_lender::PROGRAM_ID in the handler.
+    pub mock_program: UncheckedAccount<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: instructions sysvar
+    pub instruction_sysvar: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateMockPool<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+}
+
+#[derive(Accounts)]
+pub struct InitTreasury<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    #[account(
+        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
+        bump = vault_state.authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [b"vault-treasury", tslax_mint.key().as_ref()],
+        bump,
+        token::mint = tslax_mint,
+        token::authority = vault_authority,
+    )]
+    pub treasury: Box<Account<'info, TokenAccount>>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct Withdraw<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    #[account(
+        mut,
+        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
+        bump = vault_state.authority_bump,
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -723,10 +755,9 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
-        constraint = vault_ctoken.owner == vault_authority.key(),
+        constraint = receipt_mint.key() == vault_state.receipt_mint,
     )]
-    pub vault_ctoken: Box<Account<'info, TokenAccount>>,
+    pub receipt_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
@@ -734,242 +765,112 @@ pub struct Deposit<'info> {
         constraint = user_receipt.owner == user.key(),
     )]
     pub user_receipt: Box<Account<'info, TokenAccount>>,
-
-    #[account(
-        seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
-        bump = vault_state.authority_bump,
-    )]
-    pub vault_authority: UncheckedAccount<'info>,
-
-    /// CHECK: key must equal vault_state.kamino_market (verified in handler).
-    pub kamino_market: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.kamino_reserve (verified in handler).
-    /// Mut: Kamino updates reserve liquidity on supply/redeem.
-    #[account(mut)]
-    pub kamino_reserve: UncheckedAccount<'info>,
-    /// CHECK: derived PDA [b"lma", market] under the KLend program id
-    /// (verified in handler).
-    pub lending_market_authority: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.tslax_mint (verified in handler).
-    pub reserve_liquidity_mint: UncheckedAccount<'info>,
-    /// CHECK: reserve supply vault, written by Kamino (verified by program).
-    #[account(mut)]
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.kamino_ctoken_mint (verified in handler).
-    /// Mut: Kamino mints/burns cTokens on supply/redeem.
-    #[account(mut)]
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
-    /// CHECK: the KLend program on devnet (key verified in handler).
-    pub kamino_program: UncheckedAccount<'info>,
-
-    pub token_program: Program<'info, Token>,
-    /// CHECK: Solana instructions sysvar (fixed address, verified by program).
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
-    pub instruction_sysvar: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub user: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct Withdraw<'info> {
-    #[account(
-        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
-        bump = vault_state.state_bump,
-        constraint = vault_state.owner == &crate::ID,
-    )]
-    pub vault_state: Box<Account<'info, VaultState>>,
 
     pub tslax_mint: Box<Account<'info, Mint>>,
 
-    #[account(
-        mut,
-        constraint = user_tslax.mint == tslax_mint.key(),
-        constraint = user_tslax.owner == user.key(),
-    )]
-    pub user_tslax: Box<Account<'info, TokenAccount>>,
+    #[account(mut)]
+    pub mock_lender_pool: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub mock_lender_shares_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
-        constraint = vault_ctoken.mint == vault_state.kamino_ctoken_mint,
-        constraint = vault_ctoken.owner == vault_authority.key(),
+        constraint = vault_shares.mint == mock_lender_shares_mint.key(),
+        constraint = vault_shares.owner == vault_authority.key(),
     )]
-    pub vault_ctoken: Box<Account<'info, TokenAccount>>,
+    pub vault_shares: Box<Account<'info, TokenAccount>>,
+
+    /// Mock pool's TSLAx vault (sends liquidity on redeem).
+    #[account(mut)]
+    pub pool_vault: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = user_receipt.mint == vault_state.receipt_mint,
-        constraint = user_receipt.owner == user.key(),
+        seeds = [b"vault-treasury", tslax_mint.key().as_ref()],
+        bump,
     )]
-    pub user_receipt: Box<Account<'info, TokenAccount>>,
+    pub treasury: Box<Account<'info, TokenAccount>>,
+
+    /// Mock lender program: must be present so the runtime can resolve the
+    /// CPI callee from this instruction's accounts.
+    /// CHECK: verified against mock_lender::PROGRAM_ID in the handler.
+    pub mock_program: UncheckedAccount<'info>,
+
+    pub token_program: Program<'info, Token>,
+    /// CHECK: instructions sysvar
+    pub instruction_sysvar: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CrankYield<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
 
     #[account(
+        mut,
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    #[account(
+        mut,
         seeds = [b"vault-v2-authority", tslax_mint.key().as_ref()],
         bump = vault_state.authority_bump,
     )]
     pub vault_authority: UncheckedAccount<'info>,
 
-    /// CHECK: key must equal vault_state.kamino_market (verified in handler).
-    pub kamino_market: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.kamino_reserve (verified in handler).
-    /// Mut: Kamino updates reserve liquidity on supply/redeem.
+    pub tslax_mint: Box<Account<'info, Mint>>,
+
     #[account(mut)]
-    pub kamino_reserve: UncheckedAccount<'info>,
-    /// CHECK: derived PDA [b"lma", market] under the KLend program id
-    /// (verified in handler).
-    pub lending_market_authority: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.tslax_mint (verified in handler).
-    pub reserve_liquidity_mint: UncheckedAccount<'info>,
-    /// CHECK: reserve supply vault, written by Kamino (verified by program).
-    #[account(mut)]
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    /// CHECK: key must equal vault_state.kamino_ctoken_mint (verified in handler).
-    /// Mut: Kamino mints/burns cTokens on supply/redeem.
-    #[account(mut)]
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
-    /// CHECK: the KLend program on devnet (key verified in handler).
-    pub kamino_program: UncheckedAccount<'info>,
+    pub mock_lender_pool: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = admin_tslax.mint == tslax_mint.key(),
+        constraint = admin_tslax.owner == admin.key(),
+    )]
+    pub admin_tslax: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = mock_lender_vault.mint == tslax_mint.key(),
+    )]
+    pub mock_lender_vault: Box<Account<'info, TokenAccount>>,
+
+    /// Mock lender program: must be present so the runtime can resolve the
+    /// CPI callee from this instruction's accounts.
+    /// CHECK: the drip CPI targets mock_lender::PROGRAM_ID.
+    pub mock_program: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
-    /// CHECK: Solana instructions sysvar (fixed address, verified by program).
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    /// CHECK: instructions sysvar
     pub instruction_sysvar: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub user: Signer<'info>,
 }
 
-/// Minimal Kamino Lend (KLend) CPI surface.
-///
-/// Discriminators + account order mirrored from the klend IDL
-/// (@kamino-finance/klend-sdk codegen). No klend crate dependency.
-pub mod kamino {
-    use super::*;
+#[account]
+pub struct VaultState {
+    pub admin: Pubkey,
+    pub tslax_mint: Pubkey,
+    pub receipt_mint: Pubkey,
+    pub mock_lender_pool: Pubkey,
+    pub mock_lender_shares_mint: Pubkey,
+    pub pyth_price_feed: Pubkey,
+    pub authority_bump: u8,
+    pub state_bump: u8,
+    pub is_paused: bool,
+    pub protocol_fee_bps: u16,
+    pub total_deposits: u64,
+    pub total_shares: u64,
+    pub total_yield_skimmed: u64,
+    pub kamino_market: Pubkey,
+    pub kamino_reserve: Pubkey,
+    pub kamino_ctoken_mint: Pubkey,
+}
 
-    /// KLend program on devnet (same id as mainnet).
-    pub const PROGRAM_ID: Pubkey = pubkey!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
-    /// depositReserveLiquidity discriminator.
-    pub const DEPOSIT_DISC: [u8; 8] = [169, 201, 30, 126, 6, 205, 102, 68];
-    /// redeemReserveCollateral discriminator (Phase 5).
-    pub const REDEEM_DISC: [u8; 8] = [234, 117, 181, 125, 185, 142, 220, 29];
-
-    pub fn verify_reserve_accounts(
-        state: &VaultState,
-        market: &UncheckedAccount,
-        reserve: &UncheckedAccount,
-        market_authority: &UncheckedAccount,
-        liquidity_mint: &UncheckedAccount,
-        collateral_mint: &UncheckedAccount,
-        program: &UncheckedAccount,
-    ) -> Result<()> {
-        require_keys_eq!(market.key(), state.kamino_market, VaultError::WrongMarket);
-        require_keys_eq!(
-            reserve.key(),
-            state.kamino_reserve,
-            VaultError::WrongReserve
-        );
-        require_keys_eq!(
-            liquidity_mint.key(),
-            state.tslax_mint,
-            VaultError::WrongLiquidityMint
-        );
-        require_keys_eq!(
-            collateral_mint.key(),
-            state.kamino_ctoken_mint,
-            VaultError::WrongCollateralMint
-        );
-        require_keys_eq!(program.key(), PROGRAM_ID, VaultError::WrongProgram);
-        let (derived, _bump) =
-            Pubkey::find_program_address(&[b"lma", state.kamino_market.as_ref()], &PROGRAM_ID);
-        require_keys_eq!(
-            market_authority.key(),
-            derived,
-            VaultError::WrongMarketAuthority
-        );
-        Ok(())
-    }
-
-    /// depositReserveLiquidity { liquidity_amount: u64 }.
-    /// Writable: reserve, liquidity supply, collateral mint, source, destination.
-    /// Signer: owner (vault authority PDA).
-    #[allow(clippy::too_many_arguments)]
-    pub fn supply_ix(
-        amount: u64,
-        owner: &Pubkey,
-        reserve: &Pubkey,
-        market: &Pubkey,
-        market_authority: &Pubkey,
-        liquidity_mint: &Pubkey,
-        collateral_mint: &Pubkey,
-        liquidity_supply: &Pubkey,
-        user_destination: &Pubkey,
-        token_program: &Pubkey,
-    ) -> Instruction {
-        let mut data = DEPOSIT_DISC.to_vec();
-        data.extend_from_slice(&amount.to_le_bytes());
-        Instruction {
-            program_id: PROGRAM_ID,
-            accounts: vec![
-                AccountMeta::new_readonly(*owner, true),
-                AccountMeta::new_readonly(*market, false),
-                AccountMeta::new(*reserve, false),
-                AccountMeta::new_readonly(*market_authority, false),
-                AccountMeta::new_readonly(*liquidity_mint, false),
-                AccountMeta::new(*liquidity_supply, false),
-                AccountMeta::new(*collateral_mint, false),
-                AccountMeta::new(*user_destination, false),
-                AccountMeta::new_readonly(*token_program, false),
-                AccountMeta::new_readonly(*token_program, false),
-                AccountMeta::new_readonly(
-                    anchor_lang::solana_program::sysvar::instructions::ID,
-                    false,
-                ),
-            ],
-            data,
-        }
-    }
-
-    /// redeemReserveCollateral { collateral_amount: u64 }.
-    /// Writable: reserve, collateral mint, liquidity supply, source, destination.
-    /// Signer: owner (vault authority PDA).
-    #[allow(clippy::too_many_arguments)]
-    pub fn redeem_ix(
-        collateral_amount: u64,
-        owner: &Pubkey,
-        market: &Pubkey,
-        reserve: &Pubkey,
-        market_authority: &Pubkey,
-        liquidity_mint: &Pubkey,
-        collateral_mint: &Pubkey,
-        liquidity_supply: &Pubkey,
-        user_source: &Pubkey,
-        user_destination: &Pubkey,
-        token_program: &Pubkey,
-    ) -> Instruction {
-        let mut data = REDEEM_DISC.to_vec();
-        data.extend_from_slice(&collateral_amount.to_le_bytes());
-        Instruction {
-            program_id: PROGRAM_ID,
-            accounts: vec![
-                AccountMeta::new_readonly(*owner, true),
-                AccountMeta::new_readonly(*market, false),
-                AccountMeta::new(*reserve, false),
-                AccountMeta::new_readonly(*market_authority, false),
-                AccountMeta::new_readonly(*liquidity_mint, false),
-                AccountMeta::new(*collateral_mint, false),
-                AccountMeta::new(*liquidity_supply, false),
-                AccountMeta::new(*user_source, false),
-                AccountMeta::new(*user_destination, false),
-                AccountMeta::new_readonly(*token_program, false),
-                AccountMeta::new_readonly(*token_program, false),
-                AccountMeta::new_readonly(
-                    anchor_lang::solana_program::sysvar::instructions::ID,
-                    false,
-                ),
-            ],
-            data,
-        }
-    }
+impl VaultState {
+    pub const SPACE: usize = 8 + 32 * 9 + 1 + 1 + 1 + 2 + 8 * 3;
 }
 
 #[error_code]
@@ -978,22 +879,101 @@ pub enum VaultError {
     ZeroAmount,
     #[msg("integer math error")]
     MathError,
-    #[msg("Kamino issued no collateral for this deposit")]
+    #[msg("Mock lender issued no shares for this deposit")]
     NoCollateralMinted,
-    #[msg("Kamino released no liquidity for this redeem")]
+    #[msg("Mock lender released no liquidity for this redeem")]
     NoLiquidityRedeemed,
-    #[msg("wrong Kamino market account")]
+    #[msg("wrong Mock Lender pool account")]
     WrongMarket,
-    #[msg("wrong Kamino reserve account")]
+    #[msg("wrong Mock Lender reserve account")]
     WrongReserve,
-    #[msg("wrong reserve liquidity mint")]
-    WrongLiquidityMint,
-    #[msg("wrong reserve collateral mint")]
+    #[msg("wrong Mock Lender collateral mint")]
     WrongCollateralMint,
-    #[msg("wrong Kamino program id")]
-    WrongProgram,
-    #[msg("wrong lending market authority PDA")]
-    WrongMarketAuthority,
+    #[msg("wrong liquidity mint")]
+    WrongLiquidityMint,
     #[msg("vault is paused")]
     VaultPaused,
+    #[msg("wrong admin")]
+    WrongAdmin,
+    #[msg("vault state already exists")]
+    AlreadyInitialized,
+}
+
+/// Mock Lender CPI surface.
+///
+/// Discriminators + account order for the mock_lender program.
+pub mod mock_lender {
+    use super::*;
+
+    pub const PROGRAM_ID: Pubkey = pubkey!("7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g");
+    pub const DEPOSIT_DISC: [u8; 8] = [169, 201, 30, 126, 6, 205, 102, 68];
+    pub const REDEEM_DISC: [u8; 8] = [234, 117, 181, 125, 185, 142, 220, 29];
+    pub const DRIP_DISC: [u8; 8] = [239, 228, 57, 16, 123, 244, 173, 146];
+
+    /// Vault-scoped deposit into mock_lender:
+    /// owner = vault authority (PDA signer), source = vault TSLAx custody,
+    /// vault = mock pool vault, destination = vault shares custody (pre-created).
+    /// Account order must match mock DepositReserveLiquidity.
+    pub fn deposit_ix(
+        amount: u64,
+        owner: &Pubkey,
+        tslax_mint: &Pubkey,
+        pool: &Pubkey,
+        vault_source: &Pubkey,
+        pool_vault: &Pubkey,
+        shares_mint: &Pubkey,
+        vault_destination: &Pubkey,
+        token_program: &Pubkey,
+    ) -> Instruction {
+        let mut data = DEPOSIT_DISC.to_vec();
+        data.extend_from_slice(&amount.to_le_bytes());
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                // owner must be writable: mock declares user #[account(mut)].
+                AccountMeta::new(*owner, true),
+                AccountMeta::new_readonly(*tslax_mint, false),
+                AccountMeta::new(*pool, false),
+                AccountMeta::new(*vault_source, false),
+                AccountMeta::new(*pool_vault, false),
+                AccountMeta::new(*shares_mint, false),
+                AccountMeta::new(*vault_destination, false),
+                AccountMeta::new_readonly(*token_program, false),
+            ],
+            data,
+        }
+    }
+
+    /// Vault-scoped redeem from mock_lender:
+    /// burns vault shares, pool vault sends TSLAx back to vault custody.
+    /// Account order must match mock RedeemReserveCollateral.
+    pub fn redeem_ix(
+        shares: u64,
+        owner: &Pubkey,
+        tslax_mint: &Pubkey,
+        pool: &Pubkey,
+        vault_shares_source: &Pubkey,
+        pool_vault: &Pubkey,
+        shares_mint: &Pubkey,
+        vault_destination: &Pubkey,
+        token_program: &Pubkey,
+    ) -> Instruction {
+        let mut data = REDEEM_DISC.to_vec();
+        data.extend_from_slice(&shares.to_le_bytes());
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                // owner must be writable: mock declares user #[account(mut)].
+                AccountMeta::new(*owner, true),
+                AccountMeta::new_readonly(*tslax_mint, false),
+                AccountMeta::new(*pool, false),
+                AccountMeta::new(*vault_shares_source, false),
+                AccountMeta::new(*pool_vault, false),
+                AccountMeta::new(*shares_mint, false),
+                AccountMeta::new(*vault_destination, false),
+                AccountMeta::new_readonly(*token_program, false),
+            ],
+            data,
+        }
+    }
 }

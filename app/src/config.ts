@@ -2,15 +2,24 @@ export const SOLANA_RPC_URL =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 
 export const TSLAX_MINT = process.env.NEXT_PUBLIC_TSLAX_MINT ?? "";
-export const KAMINO_MARKET = process.env.NEXT_PUBLIC_KAMINO_MARKET ?? "";
-export const KAMINO_RESERVE = process.env.NEXT_PUBLIC_KAMINO_RESERVE ?? "";
-export const KAMINO_CTOKEN_MINT = process.env.NEXT_PUBLIC_KAMINO_CTOKEN_MINT ?? "";
-export const KAMINO_SUPPLY_VAULT = process.env.NEXT_PUBLIC_KAMINO_SUPPLY_VAULT ?? "";
 export const VAULT_PROGRAM_ID = process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID ?? "";
 
-export const KLEND_PROGRAM_ID = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD";
+// Mock lender (replaces legacy Kamino bindings). Env-overridable, sane devnet defaults.
+export const MOCK_LENDER_PROGRAM_ID =
+  process.env.NEXT_PUBLIC_MOCK_LENDER_PROGRAM_ID ??
+  "7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g";
+export const MOCK_LENDER_POOL =
+  process.env.NEXT_PUBLIC_MOCK_LENDER_POOL ??
+  "6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx";
+export const MOCK_LENDER_SHARES_MINT =
+  process.env.NEXT_PUBLIC_MOCK_LENDER_SHARES_MINT ??
+  "6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg";
+export const PYTH_PRICE_FEED =
+  process.env.NEXT_PUBLIC_PYTH_PRICE_FEED ??
+  "FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9";
+
 export const TSLAX_DECIMALS = 6;
 
 export function isConfigured(): boolean {
-  return Boolean(TSLAX_MINT && KAMINO_RESERVE && VAULT_PROGRAM_ID);
+  return Boolean(TSLAX_MINT && VAULT_PROGRAM_ID && MOCK_LENDER_POOL);
 }

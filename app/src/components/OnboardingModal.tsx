@@ -24,8 +24,14 @@ export default function OnboardingModal({
     setBusy(true);
     setNote("");
     try {
-      const sig = await connection.requestAirdrop(publicKey, 1_000_000_000);
-      await connection.confirmTransaction(sig, "confirmed").catch(() => null);
+      // SOL airdrop is best-effort: public devnet faucet is often rate-limited
+      // (429). Most users already have SOL — never block TSLAx on it.
+      try {
+        const sig = await connection.requestAirdrop(publicKey, 1_000_000_000);
+        await connection.confirmTransaction(sig, "confirmed").catch(() => null);
+      } catch {
+        /* ignore — continue to TSLAx mint */
+      }
       const res = await fetch("/api/faucet", {
         method: "POST",
         headers: { "content-type": "application/json" },

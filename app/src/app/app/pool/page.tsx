@@ -124,7 +124,8 @@ export default function PoolPage() {
         return;
       }
       const activeId = DLMM.getBinIdFromPrice(TARGET_PRICE, BIN_STEP, false);
-      const slot = await connection.getSlot("confirmed");
+      // Activation must lie in the future at execution time (slots ~400ms).
+      const slot = (await connection.getSlot("confirmed")) + 300;
       const tx = await DLMM.createCustomizablePermissionlessLbPair2(
         connection,
         new BN(BIN_STEP),
@@ -141,6 +142,10 @@ export default function PoolPage() {
         undefined,
         { cluster: "devnet" } as never
       );
+      // Set payer + blockhash explicitly: the wallet adapter throws an opaque
+      // error when it must prepare these itself on a heavy SDK transaction.
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       const sig = await sendTransaction(tx, connection);
       await connection.confirmTransaction(sig, "confirmed");
       const pair = await DLMM.getCustomizablePermissionlessLbPairIfExists(

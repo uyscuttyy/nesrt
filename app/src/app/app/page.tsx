@@ -103,7 +103,28 @@ export default function Dashboard() {
     setShowOnboarding(false);
   }
 
-  async function submit(build: () => Promise<{ sig: string }>) {
+  /** Manual faucet: mints 100 test TSLAx, always available (modal is one-time). */
+  async function onFaucet() {
+    if (!publicKey) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/faucet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ owner: publicKey.toBase58() }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "TSLAx faucet failed.");
+      push("100 test TSLAx minted to your wallet.");
+      await refresh();
+    } catch (e) {
+      push(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit(build: () => Promise<{ sig: string }>, retries = 1) {
     setBusy(true);
     try {
       const { sig } = await build();
@@ -112,6 +133,18 @@ export default function Dashboard() {
       await refresh();
       await refreshHistory();
     } catch (e) {
+      // Devnet RPC flakes (stale blockhash, 429, preflight timeouts): nothing
+      // landed, so one retry with a fresh transaction is safe.
+      const msg = e instanceof Error ? e.message : "";
+      const transient =
+        retries > 0 &&
+        !/confirm/i.test(msg) &&
+        (/blockhash|expired|timeout|429|rate.?limit|simulation failed|failed to fetch/i.test(msg));
+      if (transient) {
+        await new Promise((r) => setTimeout(r, 1200));
+        setBusy(false);
+        return submit(build, retries - 1);
+      }
       push(friendlyError(e));
     } finally {
       setBusy(false);
@@ -216,6 +249,11 @@ export default function Dashboard() {
           <p>
             <span className="dot" /> Connected {shortKey(publicKey?.toBase58() ?? "")} · Phantom
           </p>
+          <div className="actions" style={{ marginTop: "1rem" }}>
+            <button className="ghost" onClick={() => void onFaucet()} disabled={busy}>
+              {busy ? "Working…" : "Get 100 test TSLAx"}
+            </button>
+          </div>
 
           <div className="cards">
             <div className="card">
@@ -228,8 +266,13 @@ export default function Dashboard() {
               <span className="fine">Working in the lending pool. Withdraw anytime.</span>
             </div>
             <div className="card">
-              <span className="label">Live APY</span>
+              <span className="label">Pool yield</span>
               <strong>{apy === null ? "—" : `${apy.toFixed(2)}%`}</strong>
+              <span className="fine">
+                {pool
+                  ? `live: ${toUiAmount(pool.yieldAccruedBase).toFixed(6)} ÷ ${toUiAmount(pool.totalDepositsBase).toFixed(2)} accrued/deposited`
+                  : "live from pool"}
+              </span>
             </div>
             <div className="card">
               <span className="label">Total Value</span>

@@ -37,7 +37,7 @@
 - **Landing page** (`/`) — Nesrt brand, 1-click narrative, Devnet badge
 - **Dashboard** (`/app`) — 1-click Action Card (Vault / Unvault tabs, Max, Put Capital to Work, Unvault All)
   - Phantom-only connect (Solflare removed; select+connect flow fixed)
-  - Highlights: Wallet TSLAx, Vaulted TSLAx, Live APY, Total Value
+  - Highlights: Wallet TSLAx, Vaulted TSLAx, Pool yield (live accrued/deposited), Total Value
   - Raw dials (rate, nTSLA, pool totals, PDAs) behind "Advanced Protocol Details" drawer
   - Wired to mock_lender: raw `deposit`/`withdraw` ix matching `tests/vault.ts`, pool state read directly (no klend-sdk), new log regex
   - Wallet connect (Phantom only)

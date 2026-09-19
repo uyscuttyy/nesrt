@@ -324,6 +324,9 @@ export default function Dashboard() {
               </div>
             )}
             <p className="fine">One click. No pools, rates, or LTVs to manage.</p>
+            <p className="fine">
+              <Link href="/app/pool">Create the nTSLA/USDC liquidity pool →</Link>
+            </p>
           </div>
 
           <div className="card" style={{ marginTop: "1rem" }}>

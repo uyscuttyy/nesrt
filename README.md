@@ -20,7 +20,7 @@ Deposit TSLAx → receive liquid nTSLA receipt tokens → protocol routes collat
 | **Frontend Build** | ✅ Clean (zero TypeScript errors) |
 | **Dashboard** | ✅ Live balances, yield chart, history, reserve health |
 | **Faucet (SOL + TSLAx)** | ✅ Server route, live tested |
-| **Meteora Pool** | ⚠️ Manual creation (DLMM SDK bugs) |
+| **Meteora Pool** | ✅ Live `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (0.25% fee, seeded 10+10, dashboard Trade card) |
 | **Squads V4 Multisig** | ✅ Created, admin transferred, verified on-chain |
 | **Update Kamino Config** | ✅ `update_kamino_config` instruction added |
 | **Real APY** | ✅ Live — mock v2 pool with drip yield (E2E-verified) |
@@ -98,13 +98,13 @@ nesrt/
 │   └── src/lib.rs           # All instructions + state
 ├── app/                     # Next.js 14 frontend
 │   ├── src/
-│   │   ├── app/             # Landing + Dashboard + API routes
+│   │   ├── app/             # Landing + Dashboard (/app) + Pool creator (/app/pool) + API routes
 │   │   ├── components/      # YieldChart, Toasts, OnboardingModal
 │   │   ├── lib/             # vault.ts, yield.ts, history.ts, errors.ts
 │   │   └── idl/vault.json   # Hand-maintained IDL
 ├── scripts/
 │   ├── devnet-crank.ts      # Kamino borrow crank analysis + discriminators
-│   ├── create-meteora-pool.ts   # Meteora pool creation (SDK bugs)
+│   ├── create-meteora-pool.ts   # Legacy Meteora script (superseded by in-app /app/pool)
 │   ├── create-squads-multisig.ts # Squads V4 multisig creation (working)
 │   ├── transfer-admin-to-multisig.ts # Admin transfer (working)
 │   ├── execute-sol-crank.ts     # SOL reserve crank attempt
@@ -125,8 +125,10 @@ nesrt/
 # Phase 2: Borrow crank state analysis (shows plan + discriminators)
 npx tsx scripts/devnet-crank.ts
 
-# Phase 3: Create Meteora nTSLA/USDC pool (manual fallback documented)
-npx tsx scripts/create-meteora-pool.ts
+# Phase 3: Meteora nTSLA/USDC pool — DONE via in-app /app/pool page
+# (custom 0.25% fee, bin 25, price 1.0; Meteora UI locks unverified tokens to 10%)
+# Legacy script (broken SDK path, kept for reference):
+# npx tsx scripts/create-meteora-pool.ts
 
 # Phase 5: Create Squads V4 multisig (works)
 npx tsx scripts/create-squads-multisig.ts
@@ -160,7 +162,7 @@ node scripts/verify_pause_guard.cjs paused-deposit
 
 1. **Kamino gap bypassed with mock v2** — No TSLAx reserve exists on devnet Kamino (external infra gap). The vault now routes into mock v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` (pool `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`), E2E-verified with real drip yield. Old v1 `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo).
 
-2. **Meteora Pool** — DLMM SDK has bugs (`binStep.toArrayLike`, `binId.divmod`); manual UI creation required. Frontend has the Trade tab link ready.
+2. **Meteora Pool** — ✅ Live at `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (nTSLA/USDC, 0.25% fee, bin 25, seeded 10+10, dashboard Trade card). Created via in-app `/app/pool` (custom-fee SDK flow) because Meteora's UI locks unverified devnet tokens to a 10% fee tier and DAMM V2 rejects them.
 
 3. **Pyth On-Chain** — Feed stored in VaultState but not validated in CPI; would need pyth-sdk in the program.
 

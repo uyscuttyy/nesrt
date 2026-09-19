@@ -47,7 +47,7 @@
   - **YieldChart** — Recharts AreaChart, localStorage history, live rate append
   - **HistoryTimeline** — RPC signature parsing, deposit/withdraw events
   - **ReserveHealth** — Kamino liquidity display
-  - **Trade tab** — Meteora nTSLA/USDC link
+  - **Trade card** — Live Meteora nTSLA/USDC pair `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` on dashboard
 - **OnboardingModal** — explains Devnet/mock, 1-click faucet
 - **Toasts** — friendly errors, auto-dismiss, click-dismiss
 - **Faucet API** (`/api/faucet`) — server-signed SOL + TSLAx, live tested
@@ -207,7 +207,7 @@ TSLAX_FAUCET_KEYPAIR=
 
 5. **Pyth On-Chain Validation** — Feed stored in `VaultState.pyth_price_feed` but not passed to Kamino or validated in CPI. Would require pyth-sdk-solana in program.
 
-6. **Meteora DLMM CPI** — Frontend has Trade tab link only. No on-chain liquidity deposit/swap via Meteora program.
+6. **Meteora DLMM** — Live devnet pair (0.25% fee, seeded 10+10) + dashboard Trade card. No on-chain liquidity CPI in the vault program (frontend/SDK flow only).
 
 7. **Anchor Build Toolchain** — `anchor build` broken (edition2024 vs solana 1.18). Program built with `cargo-build-sbf` from solana 4.2.2. IDL hand-maintained.
 

@@ -239,9 +239,10 @@ Documents the exact steps to drive Kamino utilization:
 - **Wallet Pill** — Green dot + truncated address, dropdown with disconnect
 
 ### Meteora Integration
-- nTSLA/USDC DLMM pool on Devnet
-- Dashboard "Trade" tab links to Meteora UI with pool pre-selected
-- No on-chain Meteora CPI (frontend router only)
+- nTSLA/USDC DLMM pool live on Devnet: `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (0.25% fee, bin 25, price 1.0, seeded 10+10)
+- Created + seeded via in-app `/app/pool` (custom-fee SDK flow; Meteora UI locks unverified tokens to 10%, DAMM V2 rejects them)
+- Dashboard Trade card links to devnet Meteora + explorer
+- No on-chain Meteora CPI in the vault program (frontend/SDK flow only)
 
 ### Devnet Crank
 - `scripts/devnet-crank.ts` — state analysis + execution plan with discriminators

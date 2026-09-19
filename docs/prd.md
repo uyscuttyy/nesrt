@@ -1,7 +1,7 @@
 # PRD: Nesrt — Yield Vault for Tokenized Equities (Devnet)
 
 ## Product
-Nesrt is a single-click yield vault for tokenized equities on Solana. Users deposit a tokenized equity (e.g., TSLAx), receive a liquid receipt token (nTSLA), and the protocol routes the underlying collateral into Kamino Lend via CPI to earn lending yield. The protocol takes a 10% performance fee on accrued yield, routed to a program-controlled treasury. Price data comes from Pyth; secondary liquidity is available on Meteora; governance authority is prepared for Squads V4 multisig.
+Nesrt is a single-click yield vault for tokenized equities on Solana. Users deposit a tokenized equity (e.g., TSLAx), receive a liquid receipt token (nTSLA), and the protocol routes the underlying collateral into the Nesrt lending pool (mock v2, Kamino-compatible CPI interface) to earn lending yield. The protocol takes a 10% performance fee on accrued yield, routed to a program-controlled treasury. Price data comes from Pyth; secondary liquidity is available on Meteora; governance authority is prepared for Squads V4 multisig.
 
 ## Problem
 Tokenized equities (TSLAx, AAPLx, etc.) sit idle in user wallets earning 0% yield. Holders want lending yield but lack the expertise or desire to manage DeFi positions (rate comparison, Kamino usage, LTV monitoring, liquidation risk). Existing DeFi requires users to navigate multiple protocols, manage collateral ratios, and actively monitor positions.
@@ -96,11 +96,11 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 | Frontend build | ✅ Clean | `npm run build` zero errors |
 | Yield chart (Recharts) | ✅ Implemented | Local history + live rate |
 | Transaction history | ✅ Implemented | RPC signature parsing |
-| Meteora DLMM discoverability | ✅ Implemented | Trade tab with pool link |
+| Meteora DLMM trade card | ✅ Implemented | Live pair `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM`, dashboard Trade card |
 | Reserve health indicator | ✅ Implemented | Real liquidity data |
 | Error humanization | ✅ Implemented | 15+ error codes mapped |
 | Devnet borrow crank | ✅ Documented | `scripts/devnet-crank.ts` with discriminators |
-| Meteora pool creation | ⚠️ Manual Only | DLMM SDK has bugs; manual creation required |
+| Meteora pool creation | ✅ Done in-app | `/app/pool` custom-fee SDK flow (0.25%, bin 25); Meteora UI locks unverified tokens to 10% |
 | Squads V4 badge | ⏳ Pending | Awaits multisig execution |
 | Helius webhooks | ⏳ Not started | Polling fallback active |
 | Pyth on-chain validation | ⏳ Partial | Feed stored, not validated in CPI |

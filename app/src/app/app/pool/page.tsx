@@ -223,7 +223,8 @@ export default function PoolPage() {
       const dlmm = await DLMM.create(connection, pairKey, {
         cluster: "devnet",
       } as never);
-      const activeBin: number = dlmm.activeBinId;
+      const activeBin: number = dlmm.lbPair?.activeId ?? dlmm.activeBinId;
+      if (!Number.isFinite(activeBin)) throw new Error("Could not read pool active bin.");
       const minBin = activeBin - SEED_HALF_WIDTH_BINS;
       const maxBin = activeBin + SEED_HALF_WIDTH_BINS;
       setNote(`Active bin ${activeBin}. Initializing bin arrays ${minBin}…${maxBin}…`);

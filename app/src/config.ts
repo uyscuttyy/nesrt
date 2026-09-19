@@ -20,6 +20,11 @@ export const PYTH_PRICE_FEED =
 
 export const TSLAX_DECIMALS = 6;
 
+// Meteora DLMM nTSLA/USDC pair (devnet). Set after pool creation + seeding.
+export const LB_PAIR_ADDRESS =
+  process.env.NEXT_PUBLIC_LB_PAIR ??
+  "3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM";
+
 export function isConfigured(): boolean {
   return Boolean(TSLAX_MINT && VAULT_PROGRAM_ID && MOCK_LENDER_POOL);
 }

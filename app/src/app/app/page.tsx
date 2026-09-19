@@ -6,7 +6,7 @@ import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { TSLAX_MINT } from "../../config";
+import { TSLAX_MINT, LB_PAIR_ADDRESS } from "../../config";
 import { fetchPoolSnapshot, PoolSnapshot } from "../../yield";
 import { fetchVaultHistory, VaultEvent } from "../../history";
 import { friendlyError } from "../../errors";
@@ -282,6 +282,8 @@ export default function Dashboard() {
 
           <YieldChart value={positionValue} />
 
+          <TradeCard />
+
           <div className="card" style={{ marginTop: "1rem" }}>
             <div className="actions" style={{ marginTop: 0 }}>
               <button className={tab === "vault" ? "cta" : "ghost"} onClick={() => setTab("vault")} disabled={busy}>
@@ -370,8 +372,40 @@ export default function Dashboard() {
   );
 }
 
-function HistoryTimeline({ events }: { events: VaultEvent[] }) {
-  if (events.length === 0) return null;
+function TradeCard() {
+  if (!LB_PAIR_ADDRESS) return null;
+  return (
+    <div className="card" style={{ marginTop: "1rem" }}>
+      <span className="label">Trade nTSLA</span>
+      <strong className="mono" style={{ fontSize: "1rem" }}>
+        nTSLA/USDC · 0.25% fee
+      </strong>
+      <span className="fine">Live DLMM pool on devnet. Swap without unvaulting.</span>
+      <div className="actions">
+        <a
+          className="cta"
+          style={{ textDecoration: "none" }}
+          href={`https://devnet.meteora.ag/dlmm/${LB_PAIR_ADDRESS}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Trade on Meteora
+        </a>
+        <a
+          className="ghost"
+          style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+          href={`https://explorer.solana.com/address/${LB_PAIR_ADDRESS}?cluster=devnet`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          View pool
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function HistoryTimeline({ events }: { events: VaultEvent[] }) {  if (events.length === 0) return null;
   return (
     <div className="card" style={{ marginTop: "1rem" }}>
       <span className="label">Transaction history</span>

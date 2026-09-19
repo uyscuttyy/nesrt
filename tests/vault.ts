@@ -73,6 +73,20 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
     assert.isNotNull(await provider.connection.getAccountInfo(treasury), "treasury PDA");
   });
 
+  it("probes Hermes anonymous access (informational, never fails)", async () => {
+    // Deposit/withdraw carry a trailing price_update for the Pyth-gated
+    // program (ignored by current deployment). Full posting needs Hermes
+    // update access, which currently 401s without an API key.
+    try {
+      const res = await fetch(
+        "https://hermes.pyth.network/api/latest_vaas?ids[]=47a156470288850a440df3a6ce85a55917b813a19bb5b31128a33a986566a362"
+      );
+      console.log(`Hermes latest_vaas status=${res.status} (need 200 for live posting)`);
+    } catch (e) {
+      console.log(`Hermes unreachable: ${(e as Error).message.slice(0, 80)}`);
+    }
+  });
+
   it("deposits TSLAx and mints nTSLA 1:1 with shares", async () => {
     const amount = ui(1);
     // NOTE: vault custody is shared (other users may have positions), so we

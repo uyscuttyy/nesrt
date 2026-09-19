@@ -15,6 +15,7 @@ import {
   VAULT_PROGRAM_ID,
   isConfigured,
 } from "./config";
+import type { PostedUpdate } from "./pyth";
 export const NOT_DEPLOYED_MSG = "Vault is not configured. Check env addresses.";
 
 const SYSVAR_IX = new PublicKey("Sysvar1nstructions1111111111111111111111111");
@@ -113,18 +114,21 @@ export function toUiAmount(baseUnits: bigint): number {
 export async function buildDepositTx(
   connection: Connection,
   user: PublicKey,
-  amountBase: bigint
-): Promise<{ tx: Transaction; userReceipt: PublicKey }> {
+  amountBase: bigint,
+  posted?: PostedUpdate
+): Promise<{ tx: Transaction; userReceipt: PublicKey; extraSigners: import("@solana/web3.js").Keypair[] }> {
   const a = deriveAddresses();
   const userTslax = getAssociatedTokenAddressSync(a.tslaxMint, user);
   const userReceipt = getAssociatedTokenAddressSync(a.receiptMint, user);
   void connection;
   const tx = new Transaction();
+  if (posted) for (const ix of posted.postInstructions) tx.add(ix);
 
   const data = Buffer.concat([disc("deposit"), u64le(amountBase)]);
-  // price_update is trailing: old deployments ignore the extra account,
-  // new ones require it (Hermes-posted update, see Task 1 docs).
-  const priceUpdate = priceUpdateAccount();
+  // price_update is trailing: a fresh Hermes-posted account when available,
+  // else the configured placeholder (old deployments ignore the extra account,
+  // new ones enforce feed id + 60s staleness — see Task 1 docs).
+  const priceUpdate = posted?.priceUpdateAccount ?? priceUpdateAccount();
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [
@@ -152,21 +156,22 @@ export async function buildDepositTx(
     data,
   });
   tx.add(ix);
-  return { tx, userReceipt };
+  return { tx, userReceipt, extraSigners: posted?.ephemeralSigners ?? [] };
 }
 
 /** Withdraw by nTSLA shares. Order mirrors programs/vault Withdraw. */
 export async function buildWithdrawTx(
   connection: Connection,
   user: PublicKey,
-  sharesBase: bigint
-): Promise<Transaction> {
+  sharesBase: bigint,
+  posted?: PostedUpdate
+): Promise<{ tx: Transaction; extraSigners: import("@solana/web3.js").Keypair[] }> {
   const a = deriveAddresses();
   const userTslax = getAssociatedTokenAddressSync(a.tslaxMint, user);
   const userReceipt = getAssociatedTokenAddressSync(a.receiptMint, user);
   void connection;
   const data = Buffer.concat([disc("withdraw"), u64le(sharesBase)]);
-  const priceUpdate = priceUpdateAccount();
+  const priceUpdate = posted?.priceUpdateAccount ?? priceUpdateAccount();
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [
@@ -192,7 +197,10 @@ export async function buildWithdrawTx(
     ],
     data,
   });
-  return new Transaction().add(ix);
+  const tx = new Transaction();
+  if (posted) for (const ix of posted.postInstructions) tx.add(ix);
+  tx.add(ix);
+  return { tx, extraSigners: posted?.ephemeralSigners ?? [] };
 }
 
 export { ASSOCIATED_TOKEN_PROGRAM_ID };

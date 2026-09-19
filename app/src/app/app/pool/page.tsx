@@ -80,12 +80,12 @@ export default function PoolPage() {
     (async () => {
       if (!quote) return;
       try {
-        const DLMM = await import("@meteora-ag/dlmm");
+        const DLMM = resolveDLMM(await import("@meteora-ag/dlmm"));
         const { receiptMint } = deriveAddresses();
         const mints = [new PublicKey(receiptMint.toBase58()), new PublicKey(quote.mint)].sort((a, b) =>
           a.toBuffer().compare(b.toBuffer())
         );
-        const found = await DLMM.default.getCustomizablePermissionlessLbPairIfExists(
+        const found = await DLMM.getCustomizablePermissionlessLbPairIfExists(
           connection,
           mints[0],
           mints[1],
@@ -104,7 +104,10 @@ export default function PoolPage() {
     setNote("");
     try {
       const DLMMmod = await import("@meteora-ag/dlmm");
-      const DLMM = DLMMmod.default;
+      const DLMM = resolveDLMM(DLMMmod);
+      const ActivationType = (
+        DLMMmod as unknown as { ActivationType?: { Slot: number } }
+      ).ActivationType ?? { Slot: 0 };
       const { receiptMint } = deriveAddresses();
       const mints = [new PublicKey(receiptMint.toBase58()), new PublicKey(quote.mint)].sort((a, b) =>
         a.toBuffer().compare(b.toBuffer())
@@ -129,7 +132,7 @@ export default function PoolPage() {
         mints[1],
         new BN(activeId),
         new BN(FEE_BPS),
-        (DLMMmod as unknown as { ActivationType: { Slot: number } }).ActivationType.Slot,
+        ActivationType.Slot,
         false,
         publicKey,
         new BN(slot),
@@ -256,6 +259,19 @@ export default function PoolPage() {
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </main>
   );
+}
+
+function resolveDLMM(mod: unknown): {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getCustomizablePermissionlessLbPairIfExists: (...args: any[]) => Promise<{ toBase58: () => string } | null>;
+  getBinIdFromPrice: (price: number, binStep: number, min: boolean) => number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createCustomizablePermissionlessLbPair2: (...args: any[]) => Promise<import("@solana/web3.js").Transaction>;
+} {
+  const m = mod as Record<string, unknown>;
+  const cls = (m.default ?? m.DLMM) as never;
+  if (!cls) throw new Error("DLMM SDK failed to load. Refresh and try again.");
+  return cls as never;
 }
 
 function deriveAddressesSafe(): string {

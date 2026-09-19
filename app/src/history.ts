@@ -20,10 +20,44 @@ const DEPOSIT_OLD = /deposit:\s*tslax=(\d+)\s*ctokens=(\d+)\s*ytslax=(\d+)/;
 const WITHDRAW_OLD = /withdraw:\s*shares=(\d+)\s*tslax=(\d+)/;
 
 /**
- * Real user history: wallet signatures involving the vault program,
- * decoded from on-chain log lines. No indexer key needed.
+ * Real user history, two-tiered:
+ * 1. Live Helius webhook store (same-origin `/api/webhooks/helius`, instant).
+ * 2. RPC fallback: wallet signatures involving the vault program, decoded
+ *    from on-chain log lines. No indexer key needed.
+ * Results are merged, webhook-first, deduped by signature.
  */
 export async function fetchVaultHistory(
+  connection: Connection,
+  owner: PublicKey,
+  limit = 20
+): Promise<VaultEvent[]> {
+  const [live, chain] = await Promise.all([
+    fetchWebhookHistory(owner, limit).catch(() => [] as VaultEvent[]),
+    fetchRpcHistory(connection, owner, limit).catch(() => [] as VaultEvent[]),
+  ]);
+  const seen = new Set<string>();
+  const out: VaultEvent[] = [];
+  for (const e of [...live, ...chain]) {
+    if (seen.has(e.signature)) continue;
+    seen.add(e.signature);
+    out.push(e);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Same-origin webhook store. Empty until Helius delivers (or in SSR). */
+async function fetchWebhookHistory(owner: PublicKey, limit: number): Promise<VaultEvent[]> {
+  if (typeof window === "undefined") return [];
+  const res = await fetch(
+    `/api/webhooks/helius?owner=${owner.toBase58()}&limit=${limit}`
+  );
+  if (!res.ok) return [];
+  const body = (await res.json()) as { events?: VaultEvent[] };
+  return Array.isArray(body.events) ? body.events : [];
+}
+
+async function fetchRpcHistory(
   connection: Connection,
   owner: PublicKey,
   limit = 20

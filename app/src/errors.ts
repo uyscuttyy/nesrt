@@ -15,6 +15,8 @@ const ANCHOR_CODES: Record<number, string> = {
   6011: "You do not have enough vault shares for this withdrawal.",
   6012: "That amount is more than your vault position.",
   6013: "Your wallet is not the vault admin.",
+  6014: "Price feed problem. The oracle update is missing or for the wrong feed.",
+  6015: "Price feed is stale. Wait for a fresh oracle update and try again.",
 };
 
 export function friendlyError(e: unknown): string {

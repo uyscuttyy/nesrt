@@ -5,8 +5,39 @@ use anchor_lang::solana_program::{
     sysvar::instructions::Instructions,
 };
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
+use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
 declare_id!("DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB");
+
+/// TSLAx/USD Pyth feed (xStocks spot, 24/7). Matches the vaulted collateral.
+/// NOTE: price_update is intentionally UncheckedAccount rather than
+/// Account<PriceUpdateV2>: pyth-solana-receiver-sdk pins the MAINNET receiver
+/// program id, whose owner check would reject every devnet update. We
+/// deserialize manually and enforce feed id + staleness + Full verification.
+pub const TSLAX_USD_FEED_ID_HEX: &str =
+    "47a156470288850a440df3a6ce85a55917b813a19bb5b31128a33a986566a362";
+/// Maximum age of the consumed price, in seconds.
+pub const MAX_PRICE_AGE_SECONDS: u64 = 60;
+
+/// Validate a Hermes-posted TSLAx/USD update: feed id, Full verification,
+/// publish_time within MAX_PRICE_AGE_SECONDS. Returns the price on success.
+pub fn require_fresh_tslax_price(price_update_info: &AccountInfo) -> Result<i64> {
+    let data = price_update_info.try_borrow_data()?;
+    let price_update = PriceUpdateV2::try_deserialize(&mut &data[..])
+        .map_err(|_| VaultError::BadPriceFeed)?;
+    let feed_id =
+        get_feed_id_from_hex(TSLAX_USD_FEED_ID_HEX).map_err(|_| VaultError::BadPriceFeed)?;
+    let price = price_update
+        .get_price_no_older_than(&Clock::get()?, MAX_PRICE_AGE_SECONDS, &feed_id)
+        .map_err(|e| match e {
+            pyth_solana_receiver_sdk::error::GetPriceError::MismatchedFeedId => {
+                VaultError::BadPriceFeed
+            }
+            _ => VaultError::StaleOracle,
+        })?;
+    require!(price.price > 0, VaultError::StaleOracle);
+    Ok(price.price)
+}
 
 /// TSLAx Yield Vault (Devnet MVP).
 ///
@@ -195,6 +226,10 @@ pub mod vault {
             VaultError::WrongLiquidityMint
         );
 
+        // 0. Pyth guard: refuse to price shares against a stale/missing feed.
+        let tslax_price = require_fresh_tslax_price(&ctx.accounts.price_update)?;
+        msg!("pyth tslax/usd price={}", tslax_price);
+
         // 1. User TSLAx -> vault custody.
         token::transfer(
             CpiContext::new(
@@ -310,6 +345,10 @@ pub mod vault {
             mock_lender::PROGRAM_ID,
             VaultError::WrongMarket
         );
+
+        // 0. Pyth guard: refuse to redeem against a stale/missing feed.
+        let tslax_price = require_fresh_tslax_price(&ctx.accounts.price_update)?;
+        msg!("pyth tslax/usd price={}", tslax_price);
 
         // 1. Burn nTSLA from user.
         token::burn(
@@ -669,6 +708,12 @@ pub struct Deposit<'info> {
     pub system_program: Program<'info, System>,
     /// CHECK: instructions sysvar
     pub instruction_sysvar: UncheckedAccount<'info>,
+
+    /// Hermes-posted TSLAx/USD PriceUpdateV2. UncheckedAccount (see note on
+    /// TSLAX_USD_FEED_ID_HEX): deserialized + feed/age/verification enforced
+    /// in the handler via require_fresh_tslax_price.
+    /// CHECK: validated by require_fresh_tslax_price (feed id, 60s staleness).
+    pub price_update: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -800,6 +845,10 @@ pub struct Withdraw<'info> {
     pub token_program: Program<'info, Token>,
     /// CHECK: instructions sysvar
     pub instruction_sysvar: UncheckedAccount<'info>,
+
+    /// Hermes-posted TSLAx/USD PriceUpdateV2 (see Deposit.price_update).
+    /// CHECK: validated by require_fresh_tslax_price (feed id, 60s staleness).
+    pub price_update: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -897,6 +946,10 @@ pub enum VaultError {
     WrongAdmin,
     #[msg("vault state already exists")]
     AlreadyInitialized,
+    #[msg("pyth price update is missing, corrupt, or for the wrong feed")]
+    BadPriceFeed,
+    #[msg("pyth price is older than 60s or not positive")]
+    StaleOracle,
 }
 
 /// Mock Lender CPI surface.

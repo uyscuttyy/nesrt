@@ -12,6 +12,9 @@ const TSLAX_MINT = new PublicKey("4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA")
 const MOCK_LENDER_PROGRAM = new PublicKey("7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g");
 const MOCK_LENDER_POOL = new PublicKey("6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx");
 const MOCK_LENDER_SHARES_MINT = new PublicKey("6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg");
+// Placeholder until Hermes posting exists (old deployments ignore the extra
+// account; new ones enforce feed id + 60s staleness — see Task 1 docs).
+const PYTH_PRICE_UPDATE = new PublicKey("FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9");
 const SYSVAR_IX = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 const ASSOCIATED_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const DECIMALS = 6;
@@ -72,6 +75,14 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
 
   it("deposits TSLAx and mints nTSLA 1:1 with shares", async () => {
     const amount = ui(1);
+    // NOTE: vault custody is shared (other users may have positions), so we
+    // assert on our own deltas, not absolute balances.
+    const sharesBefore = await getAccount(provider.connection, vaultSharesAta)
+      .then((a) => BigInt(a.amount.toString()))
+      .catch(() => 0n);
+    const receiptBefore = await getAccount(provider.connection, userReceipt)
+      .then((a) => BigInt(a.amount.toString()))
+      .catch(() => 0n);
     const data = Buffer.concat([disc("deposit"), u64le(amount)]);
     const ix = new TransactionInstruction({
       programId: VAULT_PROGRAM_ID,
@@ -93,14 +104,22 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
         { pubkey: ASSOCIATED_PROGRAM, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_IX, isSigner: false, isWritable: false },
+        { pubkey: PYTH_PRICE_UPDATE, isSigner: false, isWritable: false },
       ],
       data,
     });
     await provider.sendAndConfirm(new Transaction().add(ix), []);
-    const vaultShares = await getAccount(provider.connection, vaultSharesAta);
-    const receipt = await getAccount(provider.connection, userReceipt);
-    assert.isTrue(Number(vaultShares.amount) > 0);
-    assert.equal(Number(receipt.amount), Number(vaultShares.amount));
+    const sharesAfter = BigInt(
+      (await getAccount(provider.connection, vaultSharesAta)).amount.toString()
+    );
+    const receiptAfter = BigInt(
+      (await getAccount(provider.connection, userReceipt)).amount.toString()
+    );
+    const sharesDelta = sharesAfter - sharesBefore;
+    const receiptDelta = receiptAfter - receiptBefore;
+    console.log(`shares +${sharesDelta}, receipt +${receiptDelta}`);
+    assert.isTrue(sharesDelta > 0n);
+    assert.equal(receiptDelta.toString(), sharesDelta.toString());
   });
 
   it("rejects zero-amount deposits", async () => {
@@ -126,6 +145,7 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
           { pubkey: ASSOCIATED_PROGRAM, isSigner: false, isWritable: false },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           { pubkey: SYSVAR_IX, isSigner: false, isWritable: false },
+          { pubkey: PYTH_PRICE_UPDATE, isSigner: false, isWritable: false },
         ],
         data,
       });
@@ -178,6 +198,7 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
         { pubkey: MOCK_LENDER_PROGRAM, isSigner: false, isWritable: false },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_IX, isSigner: false, isWritable: false },
+        { pubkey: PYTH_PRICE_UPDATE, isSigner: false, isWritable: false },
       ],
       data,
     });

@@ -18,6 +18,10 @@ export const PYTH_PRICE_FEED =
   process.env.NEXT_PUBLIC_PYTH_PRICE_FEED ??
   "FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9";
 
+// Hermes-posted TSLAx/USD PriceUpdateV2 account (pull model: fresh per tx).
+// Empty until Hermes posting is set up — builders throw a clear error then.
+export const PYTH_PRICE_UPDATE = process.env.NEXT_PUBLIC_PYTH_PRICE_UPDATE ?? "";
+
 export const TSLAX_DECIMALS = 6;
 
 // Meteora DLMM nTSLA/USDC pair (devnet). Set after pool creation + seeding.

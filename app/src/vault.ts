@@ -9,6 +9,7 @@ import {
   MOCK_LENDER_POOL,
   MOCK_LENDER_PROGRAM_ID,
   MOCK_LENDER_SHARES_MINT,
+  PYTH_PRICE_UPDATE,
   TSLAX_DECIMALS,
   TSLAX_MINT,
   VAULT_PROGRAM_ID,
@@ -31,6 +32,11 @@ function u64le(n: bigint): Buffer {
 
 export function vaultProgramId(): PublicKey {
   return new PublicKey(VAULT_PROGRAM_ID);
+}
+
+export function priceUpdateAccount(): PublicKey | null {
+  if (!PYTH_PRICE_UPDATE) return null;
+  return new PublicKey(PYTH_PRICE_UPDATE);
 }
 
 export type VaultAddresses = {
@@ -116,6 +122,9 @@ export async function buildDepositTx(
   const tx = new Transaction();
 
   const data = Buffer.concat([disc("deposit"), u64le(amountBase)]);
+  // price_update is trailing: old deployments ignore the extra account,
+  // new ones require it (Hermes-posted update, see Task 1 docs).
+  const priceUpdate = priceUpdateAccount();
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [
@@ -136,6 +145,9 @@ export async function buildDepositTx(
       { pubkey: ASSOCIATED_PROGRAM, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       { pubkey: SYSVAR_IX, isSigner: false, isWritable: false },
+      ...(priceUpdate
+        ? [{ pubkey: priceUpdate, isSigner: false, isWritable: false }]
+        : []),
     ],
     data,
   });
@@ -154,6 +166,7 @@ export async function buildWithdrawTx(
   const userReceipt = getAssociatedTokenAddressSync(a.receiptMint, user);
   void connection;
   const data = Buffer.concat([disc("withdraw"), u64le(sharesBase)]);
+  const priceUpdate = priceUpdateAccount();
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [
@@ -173,6 +186,9 @@ export async function buildWithdrawTx(
       { pubkey: a.mockProgram, isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: SYSVAR_IX, isSigner: false, isWritable: false },
+      ...(priceUpdate
+        ? [{ pubkey: priceUpdate, isSigner: false, isWritable: false }]
+        : []),
     ],
     data,
   });

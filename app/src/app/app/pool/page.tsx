@@ -161,9 +161,13 @@ export default function PoolPage() {
       setNote(sig ? `Pool created. Signature: ${sig}` : "Pool created.");
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
+      const stack =
+        e instanceof Error && e.stack
+          ? e.stack.split("\n").slice(0, 4).join(" | ").slice(0, 400)
+          : "";
       console.error("[pool]", e);
       // Show the raw message too so it can be pasted back for debugging.
-      setNote(`Failed: ${raw.slice(0, 300)}`);
+      setNote(`Failed: ${raw.slice(0, 300)}${stack ? ` — ${stack}` : ""}`);
       push(friendlyError(e));
     } finally {
       setBusy(false);

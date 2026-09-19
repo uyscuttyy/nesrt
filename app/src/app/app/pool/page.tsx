@@ -85,13 +85,15 @@ export default function PoolPage() {
         const mints = [new PublicKey(receiptMint.toBase58()), new PublicKey(quote.mint)].sort((a, b) =>
           a.toBuffer().compare(b.toBuffer())
         );
+        // NOTE: the SDK's *IfExists only derives the PDA — verify the account.
         const found = await DLMM.getCustomizablePermissionlessLbPairIfExists(
           connection,
           mints[0],
           mints[1],
           { cluster: "devnet" } as never
         );
-        setExistingPair(found ? found.toBase58() : null);
+        const live = found ? await connection.getAccountInfo(found) : null;
+        setExistingPair(live ? found!.toBase58() : null);
       } catch {
         setExistingPair(null);
       }
@@ -118,7 +120,8 @@ export default function PoolPage() {
         mints[1],
         { cluster: "devnet" } as never
       );
-      if (already) {
+      const alreadyLive = already ? await connection.getAccountInfo(already) : null;
+      if (already && alreadyLive) {
         setExistingPair(already.toBase58());
         setNote("Pool already exists — no need to create it.");
         return;
@@ -258,7 +261,7 @@ export default function PoolPage() {
                 <a
                   className="ghost"
                   style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-                  href={`https://app.meteora.ag/dlmm/${shownPair}?cluster=devnet`}
+                  href={`https://devnet.meteora.ag/dlmm/${shownPair}`}
                   target="_blank"
                   rel="noreferrer"
                 >

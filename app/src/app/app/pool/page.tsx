@@ -125,7 +125,8 @@ export default function PoolPage() {
       }
       const activeId = DLMM.getBinIdFromPrice(TARGET_PRICE, BIN_STEP, false);
       // Activation must lie in the future at execution time (slots ~400ms).
-      const slot = (await connection.getSlot("confirmed")) + 300;
+      // Generous buffer: users can take minutes on the approval dialog.
+      const slot = (await connection.getSlot("confirmed")) + 3600;
       const tx = await DLMM.createCustomizablePermissionlessLbPair2(
         connection,
         new BN(BIN_STEP),
@@ -147,14 +148,26 @@ export default function PoolPage() {
       tx.feePayer = publicKey;
       tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       const sig = await sendTransaction(tx, connection);
-      await connection.confirmTransaction(sig, "confirmed");
-      const pair = await DLMM.getCustomizablePermissionlessLbPairIfExists(
+      const conf = await connection.confirmTransaction(sig, "confirmed");
+      if (conf.value.err) {
+        const failed = await connection
+          .getTransaction(sig, { maxSupportedTransactionVersion: 0 })
+          .catch(() => null);
+        const logs = failed?.meta?.logMessages?.slice(-4).join(" | ") ?? "";
+        throw new Error(`Pool transaction failed on-chain: ${JSON.stringify(conf.value.err)} ${logs}`.slice(0, 300));
+      }
+      // Verify the pair account actually exists (a derived address proves nothing).
+      const derived = await DLMM.getCustomizablePermissionlessLbPairIfExists(
         connection,
         mints[0],
         mints[1],
         { cluster: "devnet" } as never
       );
-      const addr = pair ? pair.toBase58() : "";
+      const onchain = derived ? await connection.getAccountInfo(derived) : null;
+      if (!derived || !onchain) {
+        throw new Error(`Transaction confirmed but no pair account found for ${derived ? derived.toBase58() : "unknown"}.`);
+      }
+      const addr = derived.toBase58();
       if (addr) {
         try {
           localStorage.setItem(PAIR_KEY, addr);
@@ -276,7 +289,7 @@ export default function PoolPage() {
 
 function resolveDLMM(mod: unknown): {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getCustomizablePermissionlessLbPairIfExists: (...args: any[]) => Promise<{ toBase58: () => string } | null>;
+  getCustomizablePermissionlessLbPairIfExists: (...args: any[]) => Promise<PublicKey | null>;
   getBinIdFromPrice: (price: number, binStep: number, min: boolean) => number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createCustomizablePermissionlessLbPair2: (...args: any[]) => Promise<import("@solana/web3.js").Transaction>;

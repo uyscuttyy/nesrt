@@ -1,7 +1,7 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -17,6 +17,9 @@ const BIN_STEP = 25;
 const FEE_BPS = 25; // 0.25%
 const TARGET_PRICE = 1.0; // 1 nTSLA = 1 USDC
 const PAIR_KEY = "nesrt-lb-pair";
+const SEED_X_BASE = 10_000_000n; // 10 USDC (6 decimals, tokenX sorts first)
+const SEED_Y_BASE = 10_000_000n; // 10 nTSLA
+const SEED_HALF_WIDTH_BINS = 10;
 
 type QuoteToken = { mint: string; amountUi: number };
 
@@ -197,6 +200,114 @@ export default function PoolPage() {
 
   const shownPair = createdPair ?? existingPair;
 
+  /** Seed 10 USDC + 10 nTSLA into a Spot position around the active bin. */
+  async function onSeed() {
+    if (!publicKey || !shownPair) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const DLMMmod = await import("@meteora-ag/dlmm");
+      const DLMM = resolveDLMM(DLMMmod);
+      const m = DLMMmod as unknown as Record<string, unknown>;
+      const StrategyType =
+        (m.StrategyType as { Spot?: number } | undefined) ?? { Spot: 0 };
+      const LB_PROGRAM_IDS = m.LBCLMM_PROGRAM_IDS as
+        | { devnet?: string }
+        | undefined;
+      const lbProgramId = new PublicKey(
+        LB_PROGRAM_IDS?.devnet ?? "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+      );
+      const pairKey = new PublicKey(shownPair);
+      const pairInfo = await connection.getAccountInfo(pairKey);
+      if (!pairInfo) throw new Error("Pair account not found on-chain yet.");
+      const dlmm = await DLMM.create(connection, pairKey, {
+        cluster: "devnet",
+      } as never);
+      const activeBin: number = dlmm.activeBinId;
+      const minBin = activeBin - SEED_HALF_WIDTH_BINS;
+      const maxBin = activeBin + SEED_HALF_WIDTH_BINS;
+      setNote(`Active bin ${activeBin}. Initializing bin arrays ${minBin}…${maxBin}…`);
+
+      // Collect unique bin-array indexes covering the range.
+      const toIdx = (id: number): number => {
+        const fn = m.binIdToBinArrayIndex as
+          | ((binId: unknown) => { toNumber?: () => number } | number)
+          | undefined;
+        if (fn) {
+          const v = fn(new BN(id));
+          return typeof v === "number" ? v : v.toNumber ? v.toNumber() : Math.floor(id / 70);
+        }
+        return Math.floor(id / 70);
+      };
+      const idxSet = new Set<number>();
+      for (let b = minBin; b <= maxBin; b++) idxSet.add(toIdx(b));
+      const deriveBinArray = m.deriveBinArray as unknown as
+        | ((pair: PublicKey, index: unknown, programId: PublicKey) => [PublicKey, number])
+        | undefined;
+      const missing: InstanceType<typeof BN>[] = [];
+      for (const idx of idxSet) {
+        const addr = deriveBinArray
+          ? deriveBinArray(pairKey, new BN(idx), lbProgramId)[0]
+          : null;
+        if (!addr || !(await connection.getAccountInfo(addr))) missing.push(new BN(idx));
+      }
+      if (missing.length > 0) {
+        setNote(`Initializing ${missing.length} bin array(s)… (approve in Phantom)`);
+        const ixs = await dlmm.initializeBinArrays(missing, publicKey);
+        const tx0 = new Transaction();
+        for (const ix of ixs) tx0.add(ix);
+        tx0.feePayer = publicKey;
+        tx0.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        const sig0 = await sendTransaction(tx0, connection);
+        const conf0 = await connection.confirmTransaction(sig0, "confirmed");
+        if (conf0.value.err) throw new Error(`Bin array init failed: ${JSON.stringify(conf0.value.err)}`);
+      }
+
+      setNote("Creating position + adding 10 USDC + 10 nTSLA… (approve in Phantom)");
+      const positionKeypair = Keypair.generate();
+      const strategy = {
+        maxBinId: maxBin,
+        minBinId: minBin,
+        strategyType: StrategyType.Spot ?? 0,
+      };
+      const tx = await dlmm.initializePositionAndAddLiquidityByStrategy({
+        positionPubKey: positionKeypair.publicKey,
+        totalXAmount: new BN(SEED_X_BASE.toString()),
+        totalYAmount: new BN(SEED_Y_BASE.toString()),
+        strategy,
+        user: publicKey,
+        slippage: 1,
+      });
+      const txs = Array.isArray(tx) ? tx : [tx];
+      let lastSig = "";
+      for (const t of txs) {
+        t.feePayer = publicKey;
+        t.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        lastSig = await sendTransaction(t, connection, {
+          signers: [positionKeypair],
+        });
+        const conf = await connection.confirmTransaction(lastSig, "confirmed");
+        if (conf.value.err) {
+          const failed = await connection
+            .getTransaction(lastSig, { maxSupportedTransactionVersion: 0 })
+            .catch(() => null);
+          const logs = failed?.meta?.logMessages?.slice(-4).join(" | ") ?? "";
+          throw new Error(`Liquidity failed on-chain: ${JSON.stringify(conf.value.err)} ${logs}`.slice(0, 300));
+        }
+      }
+      setNote(
+        `Liquidity seeded. Position ${positionKeypair.publicKey.toBase58()} · ${lastSig}`
+      );
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      console.error("[pool-seed]", e);
+      setNote(`Failed: ${raw.slice(0, 300)}`);
+      push(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="wrap sanctuary">
       <header className="nav">
@@ -281,6 +392,16 @@ export default function PoolPage() {
                 Next: add liquidity (e.g. 10 nTSLA + 10 USDC) on the Meteora pool page, then send
                 this address to the team to wire into the dashboard.
               </p>
+              <div className="actions">
+                <button className="cta" onClick={() => void onSeed()} disabled={busy}>
+                  {busy ? "Working…" : "Seed liquidity (10 USDC + 10 nTSLA)"}
+                </button>
+              </div>
+              <p className="fine">
+                Seeds a Spot position ±10 bins around the active price. Meteora&apos;s UI
+                can&apos;t load these tokens, so this page does it for your Phantom to sign
+                (2 approvals: bin arrays, then position).
+              </p>
             </div>
           ) : null}
         </div>
@@ -296,6 +417,8 @@ function resolveDLMM(mod: unknown): {
   getBinIdFromPrice: (price: number, binStep: number, min: boolean) => number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createCustomizablePermissionlessLbPair2: (...args: any[]) => Promise<import("@solana/web3.js").Transaction>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  create: (...args: any[]) => Promise<any>;
 } {
   const m = mod as Record<string, unknown>;
   const cls = (m.default ?? m.DLMM) as never;

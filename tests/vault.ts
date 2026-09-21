@@ -12,9 +12,6 @@ const TSLAX_MINT = new PublicKey("4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA")
 const MOCK_LENDER_PROGRAM = new PublicKey("7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g");
 const MOCK_LENDER_POOL = new PublicKey("6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx");
 const MOCK_LENDER_SHARES_MINT = new PublicKey("6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg");
-// Placeholder until Hermes posting exists (old deployments ignore the extra
-// account; new ones enforce feed id + 60s staleness — see Task 1 docs).
-const PYTH_PRICE_UPDATE = new PublicKey("FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9");
 const SYSVAR_IX = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 const ASSOCIATED_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const DECIMALS = 6;
@@ -22,11 +19,28 @@ const ui = (n: number) => n * 10 ** DECIMALS;
 
 const VAULT_PROGRAM_ID = new PublicKey("DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB");
 
+// Devnet stub oracle PDA (admin-posted; Hermes updates override when live).
+const [stubPrice] = PublicKey.findProgramAddressSync(
+  [Buffer.from("pyth-stub"), TSLAX_MINT.toBuffer()],
+  VAULT_PROGRAM_ID
+);
+const PYTH_PRICE_UPDATE = stubPrice;
+
 const disc = (n: string) =>
   Buffer.from(crypto.createHash("sha256").update(`global:${n}`).digest().slice(0, 8));
 const u64le = (n: number | bigint) => {
   const b = Buffer.alloc(8);
   b.writeBigUInt64LE(BigInt(n));
+  return b;
+};
+const i64le = (n: number | bigint) => {
+  const b = Buffer.alloc(8);
+  b.writeBigInt64LE(BigInt(n));
+  return b;
+};
+const i32le = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeInt32LE(n);
   return b;
 };
 
@@ -85,6 +99,26 @@ describe("nesrt vault (devnet) - mock_lender v2", () => {
     } catch (e) {
       console.log(`Hermes unreachable: ${(e as Error).message.slice(0, 80)}`);
     }
+  });
+
+  it("posts the devnet stub oracle price (admin)", async () => {
+    // $250.00 with expo -6.
+    const data = Buffer.concat([disc("update_stub_price"), i64le(250_000_000), i32le(-6)]);
+    const ix = new TransactionInstruction({
+      programId: VAULT_PROGRAM_ID,
+      keys: [
+        { pubkey: admin.publicKey, isSigner: true, isWritable: true },
+        { pubkey: vaultState, isSigner: false, isWritable: false },
+        { pubkey: TSLAX_MINT, isSigner: false, isWritable: false },
+        { pubkey: stubPrice, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data,
+    });
+    await provider.sendAndConfirm(new Transaction().add(ix), []);
+    const info = await provider.connection.getAccountInfo(stubPrice);
+    assert.isNotNull(info);
+    console.log("stub price account live:", stubPrice.toBase58());
   });
 
   it("deposits TSLAx and mints nTSLA 1:1 with shares", async () => {

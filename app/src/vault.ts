@@ -49,6 +49,7 @@ export type VaultAddresses = {
   vaultSharesAta: PublicKey;
   poolAuthority: PublicKey;
   poolVaultAta: PublicKey;
+  stubPrice: PublicKey;
   mockProgram: PublicKey;
   mockPool: PublicKey;
   sharesMint: PublicKey;
@@ -77,6 +78,12 @@ export function deriveAddresses(): VaultAddresses {
     [Buffer.from("pool"), tslax.toBuffer()],
     mockProgram
   );
+  // Devnet stub oracle (admin-posted). Hermes-posted updates override it
+  // when available; until Hermes access exists the stub is the live path.
+  const [stubPrice] = PublicKey.findProgramAddressSync(
+    [Buffer.from("pyth-stub"), tslax.toBuffer()],
+    programId
+  );
   const vaultTslaxAta = getAssociatedTokenAddressSync(tslax, authority, true);
   const vaultSharesAta = getAssociatedTokenAddressSync(sharesMint, authority, true);
   const poolVaultAta = getAssociatedTokenAddressSync(tslax, mockPool, true);
@@ -89,6 +96,7 @@ export function deriveAddresses(): VaultAddresses {
     vaultSharesAta,
     poolAuthority,
     poolVaultAta,
+    stubPrice,
     mockProgram,
     mockPool,
     sharesMint,
@@ -126,9 +134,8 @@ export async function buildDepositTx(
 
   const data = Buffer.concat([disc("deposit"), u64le(amountBase)]);
   // price_update is trailing: a fresh Hermes-posted account when available,
-  // else the configured placeholder (old deployments ignore the extra account,
-  // new ones enforce feed id + 60s staleness — see Task 1 docs).
-  const priceUpdate = posted?.priceUpdateAccount ?? priceUpdateAccount();
+  // else the admin-posted devnet stub (old deployments ignore the extra).
+  const priceUpdate = posted?.priceUpdateAccount ?? a.stubPrice;
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [
@@ -171,7 +178,7 @@ export async function buildWithdrawTx(
   const userReceipt = getAssociatedTokenAddressSync(a.receiptMint, user);
   void connection;
   const data = Buffer.concat([disc("withdraw"), u64le(sharesBase)]);
-  const priceUpdate = posted?.priceUpdateAccount ?? priceUpdateAccount();
+  const priceUpdate = posted?.priceUpdateAccount ?? a.stubPrice;
   const ix = new TransactionInstruction({
     programId: vaultProgramId(),
     keys: [

@@ -16,19 +16,69 @@ declare_id!("DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB");
 /// deserialize manually and enforce feed id + staleness + Full verification.
 pub const TSLAX_USD_FEED_ID_HEX: &str =
     "47a156470288850a440df3a6ce85a55917b813a19bb5b31128a33a986566a362";
-/// Maximum age of the consumed price, in seconds.
+/// Maximum age of a Hermes-posted price, in seconds.
 pub const MAX_PRICE_AGE_SECONDS: u64 = 60;
+/// Maximum age of the DEVNET STUB price, in seconds (24h). The stub is an
+/// admin-posted stand-in for Hermes on devnet, where no pull updates exist.
+pub const MAX_STUB_PRICE_AGE_SECONDS: i64 = 86_400;
 
-/// Validate a Hermes-posted TSLAx/USD update: feed id, Full verification,
-/// publish_time within MAX_PRICE_AGE_SECONDS. Returns the price on success.
-pub fn require_fresh_tslax_price(price_update_info: &AccountInfo) -> Result<i64> {
+/// Devnet stub oracle: admin-posted TSLAx/USD stand-in. PDA
+/// ["pyth-stub", tslax_mint]. Real Hermes updates always take precedence;
+/// the stub only applies when price_update IS this PDA.
+#[account]
+pub struct StubPrice {
+    pub feed_id: [u8; 32],
+    pub price: i64,
+    pub expo: i32,
+    pub publish_time: i64,
+    pub bump: u8,
+}
+
+impl StubPrice {
+    pub const SPACE: usize = 8 + 32 + 8 + 4 + 8 + 1;
+}
+
+/// Validate a TSLAx/USD price for deposit/withdraw. Two paths:
+/// 1. Real Hermes PriceUpdateV2: feed id + Full verification + 60s staleness.
+/// 2. Devnet stub (price_update == ["pyth-stub", tslax] PDA): feed id +
+///    24h staleness. Returns the raw price on success.
+pub fn require_fresh_tslax_price(
+    price_update_info: &AccountInfo,
+    tslax_mint: &Pubkey,
+    vault_program_id: &Pubkey,
+) -> Result<i64> {
+    let feed_id =
+        get_feed_id_from_hex(TSLAX_USD_FEED_ID_HEX).map_err(|_| VaultError::BadPriceFeed)?;
+    let clock = Clock::get()?;
+
+    // Path 2: devnet stub PDA?
+    let (stub_key, stub_bump) =
+        Pubkey::find_program_address(&[b"pyth-stub", tslax_mint.as_ref()], vault_program_id);
+    if price_update_info.key() == stub_key {
+        let data = price_update_info.try_borrow_data()?;
+        // try_deserialize verifies the Anchor discriminator internally.
+        let stub = StubPrice::try_deserialize(&mut &data[..])
+            .map_err(|_| VaultError::BadPriceFeed)?;
+        require!(stub.bump == stub_bump, VaultError::BadPriceFeed);
+        require!(stub.feed_id == feed_id, VaultError::BadPriceFeed);
+        require!(stub.price > 0, VaultError::StaleOracle);
+        require!(
+            stub
+                .publish_time
+                .saturating_add(MAX_STUB_PRICE_AGE_SECONDS)
+                >= clock.unix_timestamp,
+            VaultError::StaleOracle
+        );
+        msg!("pyth-stub tslax/usd price={}", stub.price);
+        return Ok(stub.price);
+    }
+
+    // Path 1: real Hermes update.
     let data = price_update_info.try_borrow_data()?;
     let price_update = PriceUpdateV2::try_deserialize(&mut &data[..])
         .map_err(|_| VaultError::BadPriceFeed)?;
-    let feed_id =
-        get_feed_id_from_hex(TSLAX_USD_FEED_ID_HEX).map_err(|_| VaultError::BadPriceFeed)?;
     let price = price_update
-        .get_price_no_older_than(&Clock::get()?, MAX_PRICE_AGE_SECONDS, &feed_id)
+        .get_price_no_older_than(&clock, MAX_PRICE_AGE_SECONDS, &feed_id)
         .map_err(|e| match e {
             pyth_solana_receiver_sdk::error::GetPriceError::MismatchedFeedId => {
                 VaultError::BadPriceFeed
@@ -204,6 +254,30 @@ pub mod vault {
         Ok(())
     }
 
+    /// Admin-only: post (or refresh) the devnet stub oracle price. Creates
+    /// the ["pyth-stub", tslax] PDA on first call. No Hermes key needed.
+    pub fn update_stub_price(
+        ctx: Context<UpdateStubPrice>,
+        price: i64,
+        expo: i32,
+    ) -> Result<()> {
+        require!(price > 0, VaultError::ZeroAmount);
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            ctx.accounts.vault_state.admin,
+            VaultError::WrongAdmin
+        );
+        let stub = &mut ctx.accounts.stub_price;
+        stub.feed_id = get_feed_id_from_hex(TSLAX_USD_FEED_ID_HEX)
+            .map_err(|_| VaultError::BadPriceFeed)?;
+        stub.price = price;
+        stub.expo = expo;
+        stub.publish_time = Clock::get()?.unix_timestamp;
+        stub.bump = ctx.bumps.stub_price;
+        msg!("stub price updated: price={} expo={}", price, expo);
+        Ok(())
+    }
+
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::ZeroAmount);
         let state = &ctx.accounts.vault_state;
@@ -227,7 +301,12 @@ pub mod vault {
         );
 
         // 0. Pyth guard: refuse to price shares against a stale/missing feed.
-        let tslax_price = require_fresh_tslax_price(&ctx.accounts.price_update)?;
+        // Accepts a fresh Hermes update OR the admin-posted devnet stub.
+        let tslax_price = require_fresh_tslax_price(
+            &ctx.accounts.price_update,
+            &ctx.accounts.tslax_mint.key(),
+            &crate::ID,
+        )?;
         msg!("pyth tslax/usd price={}", tslax_price);
 
         // 1. User TSLAx -> vault custody.
@@ -347,7 +426,12 @@ pub mod vault {
         );
 
         // 0. Pyth guard: refuse to redeem against a stale/missing feed.
-        let tslax_price = require_fresh_tslax_price(&ctx.accounts.price_update)?;
+        // Accepts a fresh Hermes update OR the admin-posted devnet stub.
+        let tslax_price = require_fresh_tslax_price(
+            &ctx.accounts.price_update,
+            &ctx.accounts.tslax_mint.key(),
+            &crate::ID,
+        )?;
         msg!("pyth tslax/usd price={}", tslax_price);
 
         // 1. Burn nTSLA from user.
@@ -763,6 +847,31 @@ pub struct InitTreasury<'info> {
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateStubPrice<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [b"vault-v2", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub tslax_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = StubPrice::SPACE,
+        seeds = [b"pyth-stub", tslax_mint.key().as_ref()],
+        bump,
+    )]
+    pub stub_price: Box<Account<'info, StubPrice>>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]

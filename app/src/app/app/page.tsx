@@ -10,7 +10,6 @@ import { TSLAX_MINT, LB_PAIR_ADDRESS } from "../../config";
 import { fetchPoolSnapshot, PoolSnapshot } from "../../yield";
 import { fetchVaultHistory, VaultEvent } from "../../history";
 import { friendlyError } from "../../errors";
-import { fetchAndBuildPriceUpdate } from "../../pyth";
 import {
   buildDepositTx,
   buildWithdrawTx,
@@ -161,14 +160,10 @@ export default function Dashboard() {
       return;
     }
     void submit(async () => {
-      // Hermes-posted TSLAx update when available (falls back to the
-      // placeholder path while Hermes needs no-key access blocked).
-      const posted = await fetchAndBuildPriceUpdate(publicKey).catch(() => null);
       const { tx, extraSigners } = await buildDepositTx(
         connection,
         publicKey,
-        toBaseUnits(parsed),
-        posted ?? undefined
+        toBaseUnits(parsed)
       );
       const sig = await sendTransaction(
         tx,
@@ -209,12 +204,10 @@ export default function Dashboard() {
     }
     const finalShares = shares;
     void submit(async () => {
-      const posted = await fetchAndBuildPriceUpdate(publicKey).catch(() => null);
       const { tx, extraSigners } = await buildWithdrawTx(
         connection,
         publicKey,
-        finalShares,
-        posted ?? undefined
+        finalShares
       );
       const sig = await sendTransaction(
         tx,

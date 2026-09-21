@@ -23,6 +23,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import { ToastStack, useToasts } from "@/components/Toasts";
 import OnboardingModal from "@/components/OnboardingModal";
 import YieldChart from "@/components/YieldChart";
+import JupiterZapModal from "@/components/JupiterZapModal";
 
 type Balances = {
   tslax: bigint | null;
@@ -39,7 +40,7 @@ export default function Dashboard() {
   const [balances, setBalances] = useState<Balances>({ tslax: null, ntsla: null });
   const [pool, setPool] = useState<PoolSnapshot | null>(null);
   const [amount, setAmount] = useState("");
-  const [tab, setTab] = useState<"vault" | "unvault">("vault");
+  const [tab, setTab] = useState<"vault" | "unvault" | "zap">("vault");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<VaultEvent[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -232,6 +233,11 @@ export default function Dashboard() {
     }
   }
 
+  async function refreshAll() {
+    await refresh();
+    await refreshHistory();
+  }
+
   const rate = pool?.rate ?? null;
   const apy = pool?.apyPct ?? null;
   const positionValue =
@@ -260,6 +266,7 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <p className="eyebrow">Nesrt Vault · Solana Devnet</p>
       <h1>Put your stocks to work.</h1>
 
       {!connected ? (
@@ -269,21 +276,26 @@ export default function Dashboard() {
         </>
       ) : (
         <div>
-          <p>
-            <span className="dot" /> Connected {shortKey(publicKey?.toBase58() ?? "")} · Phantom
-          </p>
-          <div className="actions" style={{ marginTop: "1rem" }}>
-            <button className="ghost" onClick={() => void onFaucet()} disabled={busy}>
+          <div className="account-bar">
+            <span>
+              <span className="dot" /> Connected {shortKey(publicKey?.toBase58() ?? "")} · Phantom
+            </span>
+            <button className="ghost ghost-sm" onClick={() => void onFaucet()} disabled={busy}>
               {busy ? "Working…" : "Get 100 test TSLAx"}
             </button>
           </div>
 
           <div className="cards">
+            <div className="card accent-card">
+              <span className="label">Total Value</span>
+              <strong>{totalValue === null ? "—" : `${totalValue.toFixed(6)} TSLAx`}</strong>
+              <span className="fine">Wallet + vaulted, live.</span>
+            </div>
             <div className="card">
               <span className="label">Wallet TSLAx</span>
               <strong>{fmt(balances.tslax)}</strong>
             </div>
-            <div className="card accent-card">
+            <div className="card">
               <span className="label">Vaulted TSLAx</span>
               <strong>{positionValue === null ? "—" : `${positionValue.toFixed(6)} TSLAx`}</strong>
               <span className="fine">Working in the lending pool. Withdraw anytime.</span>
@@ -297,62 +309,77 @@ export default function Dashboard() {
                   : "live from pool"}
               </span>
             </div>
-            <div className="card">
-              <span className="label">Total Value</span>
-              <strong>{totalValue === null ? "—" : `${totalValue.toFixed(6)} TSLAx`}</strong>
+          </div>
+
+          <div className="card action-card">
+            <div className="tabs" role="tablist">
+              {(
+                [
+                  ["vault", "Vault"],
+                  ["unvault", "Unvault"],
+                  ["zap", "Zap ⚡"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={tab === key}
+                  className={tab === key ? "tab tab-active" : "tab"}
+                  onClick={() => setTab(key)}
+                  disabled={busy}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+            {tab === "zap" ? (
+              <div className="tab-pane">
+                <JupiterZapModal onDone={() => void refreshAll()} />
+              </div>
+            ) : (
+              <>
+                <div className="actions">
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder={tab === "vault" ? "Amount of TSLAx to Vault" : "Amount to unvault, empty for full"}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    disabled={busy}
+                    style={{ fontSize: "1.15rem", fontWeight: 600 }}
+                  />
+                  <button className="ghost" onClick={useMax} disabled={busy}>
+                    Max
+                  </button>
+                </div>
+                {tab === "vault" ? (
+                  <div className="actions">
+                    <button className="cta" onClick={onPutToWork} disabled={busy}>
+                      {busy ? "Working…" : "Put Capital to Work"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="actions">
+                    <button className="cta" onClick={() => onUnvault(false)} disabled={busy}>
+                      {busy ? "Working…" : "Unvault Capital"}
+                    </button>
+                    <button className="ghost" onClick={() => onUnvault(true)} disabled={busy}>
+                      Unvault All
+                    </button>
+                  </div>
+                )}
+                <p className="fine">One click. No pools, rates, or LTVs to manage.</p>
+              </>
+            )}
           </div>
 
           <YieldChart value={positionValue} />
 
           <TradeCard />
 
-          <div className="card" style={{ marginTop: "1rem" }}>
-            <div className="actions" style={{ marginTop: 0 }}>
-              <button className={tab === "vault" ? "cta" : "ghost"} onClick={() => setTab("vault")} disabled={busy}>
-                Vault
-              </button>
-              <button className={tab === "unvault" ? "cta" : "ghost"} onClick={() => setTab("unvault")} disabled={busy}>
-                Unvault Capital
-              </button>
-            </div>
-            <div className="actions">
-              <input
-                className="input"
-                type="number"
-                min="0"
-                step="any"
-                placeholder={tab === "vault" ? "Amount of TSLAx to Vault" : "Amount to unvault, empty for full"}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                disabled={busy}
-                style={{ fontSize: "1.15rem", fontWeight: 600 }}
-              />
-              <button className="ghost" onClick={useMax} disabled={busy}>
-                Max
-              </button>
-            </div>
-            {tab === "vault" ? (
-              <div className="actions">
-                <button className="cta" onClick={onPutToWork} disabled={busy}>
-                  {busy ? "Working…" : "Put Capital to Work"}
-                </button>
-              </div>
-            ) : (
-              <div className="actions">
-                <button className="cta" onClick={() => onUnvault(false)} disabled={busy}>
-                  {busy ? "Working…" : "Unvault Capital"}
-                </button>
-                <button className="ghost" onClick={() => onUnvault(true)} disabled={busy}>
-                  Unvault All
-                </button>
-              </div>
-            )}
-            <p className="fine">One click. No pools, rates, or LTVs to manage.</p>
-            <p className="fine">
-              <Link href="/app/pool">Create the nTSLA/USDC liquidity pool →</Link>
-            </p>
-          </div>
+          <HistoryTimeline events={history} />
 
           <div className="card" style={{ marginTop: "1rem" }}>
             <button className="ghost" onClick={() => setShowAdvanced((v) => !v)}>
@@ -374,6 +401,9 @@ export default function Dashboard() {
                     <div>Shares mint: {advanced.sharesMint.toBase58()}</div>
                   </>
                 ) : null}
+                <div>
+                  <Link href="/app/pool">Liquidity pool creator →</Link>
+                </div>
               </div>
             ) : null}
           </div>

@@ -9,7 +9,7 @@ nesrt/
 │       └── src/
 │           └── lib.rs         # All instructions + state
 ├── programs/
-│   └── mock_lender/           # Mock Kamino CPI (Rust)
+│   └── mock_lender/           # Mock lender v2 (Rust)
 │       ├── Cargo.toml
 │       └── src/
 │           └── lib.rs         # initialize_pool, deposit, redeem, drip_yield
@@ -35,7 +35,7 @@ nesrt/
 │       │   └── OnboardingModal.tsx
 │       ├── lib/
 │       │   ├── vault.ts            # Anchor tx builders
-│       │   ├── yield.ts            # Kamino reserve fetch
+│       │   ├── yield.ts            # Mock pool snapshot (rate, yield)
 │       │   ├── history.ts          # RPC signature parsing
 │       │   ├── errors.ts           # Error humanization
 │       │   └── config.ts           # Env config
@@ -86,27 +86,30 @@ pub struct VaultState {
     pub admin: Pubkey,                    // Authority for pause, admin transfer
     pub tslax_mint: Pubkey,               // Mock TSLAx SPL mint
     pub receipt_mint: Pubkey,             // nTSLA mint (vault-v2-authority is mint authority)
-    pub kamino_market: Pubkey,            // KLend market
-    pub kamino_reserve: Pubkey,           // TSLAx reserve in market
-    pub kamino_ctoken_mint: Pubkey,       // cToken mint for TSLAx reserve
+    pub mock_lender_pool: Pubkey,         // Mock v2 pool PDA
+    pub mock_lender_shares_mint: Pubkey,  // Shares mint (yield position)
+    pub pyth_price_feed: Pubkey,          // Legacy placeholder (stub PDA is live path)
     pub authority_bump: u8,               // Vault authority PDA bump
     pub state_bump: u8,                   // VaultState PDA bump
     pub is_paused: bool,                  // Emergency circuit breaker
-    pub pyth_price_feed: Pubkey,          // Pyth Devnet TSLA/USD feed
     pub protocol_fee_bps: u16,            // 1000 = 10%
-    pub treasury: Pubkey,                 // Treasury PDA
+    pub total_deposits: u64,              // Principal accounting (base units)
+    pub total_shares: u64,                // Outstanding nTSLA (base units)
+    pub total_yield_skimmed: u64,         // Lifetime treasury fees
+    pub kamino_market: Pubkey,            // Legacy (superseded)
+    pub kamino_reserve: Pubkey,           // Legacy (superseded)
+    pub kamino_ctoken_mint: Pubkey,       // Legacy (superseded)
 }
 ```
-**SPACE**: 272 bytes (8 disc + 32×10 + 1 + 1 + 2 + 32)
+**SPACE**: 325 bytes (8 disc + 32×9 + 1 + 1 + 1 + 2 + 8×3)
 
 #### Vault Authority PDA (`["vault-v2-authority", tslax_mint]`)
-- Signer-only PDA (never writable)
-- Owns: vault TSLAx custody, vault cToken custody, nTSLA mint authority
-- Signs Kamino CPI via `invoke_signed` with seeds `["vault-v2-authority", tslax_mint, bump]`
+- PDA signer: owns vault custody ATAs, nTSLA mint authority, treasury + stub token authority
+- Signs mock CPI + mint/transfer CPIs via `invoke_signed` with seeds `["vault-v2-authority", tslax_mint, bump]`
 
-#### Receipt Mint PDA (`["receipt-mint-v2", tslax_mint]`)
+#### Receipt Mint PDA (`["receipt", tslax_mint]`)
 - 6 decimals, mint authority = vault-v2-authority
-- nTSLA tokens minted 1:1 against cTokens received on deposit
+- nTSLA minted 1:1 against pool shares received on deposit (`init_if_needed` user ATA)
 - Burned proportionally on withdrawal
 
 #### Treasury PDA (`["treasury", tslax_mint]`)
@@ -114,43 +117,45 @@ pub struct VaultState {
 - Accumulates 10% of yield on each withdrawal
 - Authority = vault-v2-authority (program-controlled)
 
-#### Custody Token Accounts
-- **Vault TSLAx** (`["vault-v2-tslax", tslax_mint]`): Holds deposited TSLAx before Kamino supply
-- **Vault cToken** (`["vault-v2-ctoken", tslax_mint]`): Holds cTokens from Kamino (yield position)
+#### Custody Token Accounts (ATAs owned by the vault authority PDA)
+- **Vault TSLAx**: Holds deposited TSLAx before pool supply
+- **Vault shares**: Holds mock pool shares (the yield position)
+- **Pool vault**: Mock pool's TSLAx vault (holds all supplied liquidity + dripped yield)
+- **Treasury PDA** (`["vault-treasury", tslax_mint]`): Program-owned token account, 10% fee sink
+- **Stub oracle PDA** (`["pyth-stub", tslax_mint]`): Admin-posted TSLAx/USD price (61 bytes)
 
 ### Instructions
 
 | Instruction | Purpose | Key Constraints |
 |-------------|---------|-----------------|
-| `initialize_state` | Legacy init (vault seed) | Admin only |
-| `initialize_state_v2` | Full init with new layout | Creates VaultState, sets all fields |
-| `initialize_mint` | Creates nTSLA receipt mint | `init` constraint, auth = vault-v2-authority |
-| `init_custody` | Creates vault TSLAx + cToken ATAs | Verifies mints match state |
-| `deposit(amount)` | User TSLAx → Kamino → nTSLA | Pause guard, Kamino verify, mints 1:1 |
-| `withdraw(shares)` | nTSLA → Kamino redeem → TSLAx | Pause guard, share validation, fee skim |
+| `initialize_state` | State init (pool + shares + pyth) | Admin only |
+| `deposit(amount)` | User TSLAx → pool → nTSLA (+ Pyth/stub gate) | Pause guard, pool verify, mints 1:1, `init_if_needed` receipt |
+| `withdraw(shares)` | nTSLA → pool redeem → TSLAx + fee skim (+ Pyth/stub gate) | Pause guard, share validation, pays user |
 | `set_paused(paused)` | Emergency pause toggle | Admin only, `WrongAdmin` check |
 | `set_admin(new_admin)` | Transfer authority to Squads | Admin only |
-| `update_kamino_config` | Update market/reserve/ctoken/pyth | Admin only, full config swap |
-| `migrate_state` | Close old PDA | Admin only |
-| `close_vault_state_v2` | Close v2 PDA | Admin only |
-| `allocate_vault_state` | Reallocate old PDA | System program Allocate |
+| `init_treasury` | Creates treasury token PDA | Admin (payer) |
+| `update_mock_pool` | Update pool/shares addrs | Admin only |
+| `update_stub_price` | Post devnet oracle price | Admin only, `WrongAdmin` check |
+| `update_kamino_config` | Legacy config swap | Admin only (superseded) |
+| `migrate_state` / `close_vault_state_v2` | Close old PDAs | Admin only |
+| `crank_yield` | Drip via mock (fixed discriminator) | Admin/signer flow |
 
-### Kamino CPI Integration
-- **Program**: `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD`
-- **Deposit discriminator**: `a9c91e7e06cd6644` (supplyReserveLiquidity)
-- **Redeem discriminator**: `ea75b57db98edc1d` (redeemReserveCollateral)
-- **Account order** (verified against klend source):
-  1. Owner (signer, readonly)
-  2. Market (readonly)
-  3. Reserve (writable)
-  4. Market authority (readonly)
-  5. Liquidity mint (readonly)
-  6. Reserve liquidity supply (writable)
-  7. Collateral mint (writable)
-  8. User source (writable)
-  9. User destination (writable)
-  10. Token program (readonly) ×2
-  11. Instruction sysvar (readonly)
+### Mock Lender v2 CPI Integration
+- **Program**: `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` (admin upgrade authority; v1 superseded)
+- **Deposit discriminator**: `[169, 201, 30, 126, 6, 205, 102, 68]` (`deposit_reserve_liquidity`)
+- **Redeem discriminator**: `[234, 117, 181, 125, 185, 142, 220, 29]` (`redeem_reserve_collateral`)
+- **Drip discriminator**: `[239, 228, 57, 16, 123, 244, 173, 146]` (`drip_yield`)
+- **Account order** (vault-scoped, pool PDA signs directly, no alias account):
+  1. Owner = vault authority (signer via `invoke_signed`, writable)
+  2. Liquidity mint (readonly)
+  3. Pool state (writable)
+  4. Source custody — vault TSLAx on deposit / vault shares on redeem (writable)
+  5. Pool vault (writable)
+  6. Shares mint (writable)
+  7. Destination custody — vault shares on deposit / vault TSLAx on redeem (writable)
+  8. Token program (readonly)
+- **CPI callee rule**: the mock program account rides in the outer ix (`mock_program`), otherwise the runtime cannot resolve the callee (`Unknown program` + `MissingAccount`)
+- Mock `deposit` mints into pre-created custody (no `init`), so repeat deposits work
 
 ### Performance Fee Mechanics
 On every `withdraw`:
@@ -171,11 +176,11 @@ On every `withdraw`:
 - New admin can be any Pubkey (wallet or Squads multisig)
 - Immediate effect; no timelock (by design for hackathon)
 
-### Update Kamino Config
-- `update_kamino_config(new_market, new_reserve, new_ctoken_mint, new_pyth_feed)`
-- Admin-gated via `require_keys_eq(caller, state.admin)`
-- Allows switching reserves (e.g., for Devnet demo with SOL reserve)
-- Immediate effect; no migration needed
+### Pool Config Updates
+- `update_mock_pool(new_pool, new_shares_mint)` — repoint the vault at a new pool
+- `update_stub_price(price, expo)` — refresh the devnet oracle (creates PDA on first call)
+- `update_kamino_config(...)` — legacy Kamino-era swap, superseded
+- All admin-gated via `require_keys_eq(caller, state.admin)`; immediate effect
 
 ### Devnet Borrow Crank (`scripts/devnet-crank.ts`)
 Documents the exact steps to drive Kamino utilization:
@@ -213,8 +218,12 @@ Documents the exact steps to drive Kamino utilization:
 
 ### Next.js 14 App Router
 - `/` — Landing page (static)
-- `/app` — Dashboard (client component, dynamic)
-- `/api/faucet` — Server route, signs with faucet keypair
+- `/app` — Dashboard: Vault/Unvault/Zap tabs, chart, Trade card, history (dynamic)
+- `/app/pool` — Meteora pool creator + liquidity seeder (dynamic)
+- `/api/faucet` — TSLAx faucet (server-signed)
+- `/api/zap` — Zap rates + payment-verified mint (server-signed)
+- `/api/pyth/post` — Hermes VAA → post_update bundle builder
+- `/api/webhooks/helius` — Enhanced webhook receiver + local event feed
 
 ### Wallet Integration
 - `@solana/wallet-adapter-react` + Phantom only (`PhantomWalletAdapter`)
@@ -225,9 +234,9 @@ Documents the exact steps to drive Kamino utilization:
 ### Data Layer
 | Module | Purpose | Source |
 |--------|---------|--------|
-| `vault.ts` | `deriveAddresses`, `buildDepositTx`, `buildWithdrawTx` (raw ix, mock_lender order) | On-chain PDAs + ATAs |
+| `vault.ts` | `deriveAddresses`, `buildDepositTx`, `buildWithdrawTx` (raw ix, trailing price_update, Hermes override) | On-chain PDAs + ATAs |
 | `yield.ts` | `fetchPoolSnapshot()` → `{rate, apyPct, totals}` from mock Pool bytes | Mock pool account |
-| `history.ts` | `fetchVaultHistory()` with new `amount=/shares_minted=` + `tslax_out=` regex + legacy fallback | RPC signature parsing |
+| `history.ts` | `fetchVaultHistory()` webhook-first + RPC fallback, deduped | `/api/webhooks/helius` + RPC |
 | `errors.ts` | `friendlyError()` maps 15+ error codes | Anchor error codes + wallet/RPC patterns |
 | `config.ts` | All addresses from `NEXT_PUBLIC_*` env vars | `.env.local` |
 
@@ -235,7 +244,9 @@ Documents the exact steps to drive Kamino utilization:
 - **ThemeProvider** — dark/light (obsidian/zinc + emerald accents)
 - **YieldChart** — Recharts AreaChart, localStorage history, live rate append
 - **Toasts** — Bottom-center stack, auto-dismiss 6s, click to dismiss
-- **OnboardingModal** — Shows once per wallet (localStorage), 1-click faucet
+- **OnboardingModal** — Shows once per wallet (localStorage), 1-click faucet (SOL best-effort)
+- **JupiterZapModal** — SOL/USDC zap tab: Jupiter quote/swap or devnet mint fallback, bundle-or-sequential deposit
+- **TradeCard** — Live nTSLA/USDC pair links (devnet Meteora + explorer)
 - **Wallet Pill** — Green dot + truncated address, dropdown with disconnect
 
 ### Meteora Integration
@@ -251,17 +262,17 @@ Documents the exact steps to drive Kamino utilization:
 
 ## Data Flows
 
-### Deposit Flow
+### Deposit Flow (Pyth/stub-gated)
 ```
 User Wallet (TSLAx)
        ↓ SPL transfer
-Vault TSLAx Custody (PDA)
-       ↓ CPI: supplyReserveLiquidity (Kamino) OR depositReserveLiquidity (mock_lender)
-Kamino Reserve / Mock Lender Pool
-       ↓ cToken / Shares delta measured
-nTSLA Mint (PDA authority) → User nTSLA ATA (1:1 vs delta)
+Vault TSLAx Custody (vault authority ATA)
+       ↓ CPI: deposit_reserve_liquidity (mock v2, pool PDA signs mint)
+Mock Lender Pool (vault += amount, shares minted to vault custody)
+       ↓ Shares delta measured → vault totals updated
+nTSLA Mint (PDA authority) → User nTSLA ATA (1:1 vs delta, init_if_needed)
        ↓ UI refresh
-Dashboard shows: Vaulted TSLAx, nTSLA balance, Position Value = nTSLA × rate
+Dashboard shows: Vaulted TSLAx, Pool yield, Total Value
 ```
 
 ### Withdraw Flow (Partial or Full)
@@ -269,22 +280,32 @@ Dashboard shows: Vaulted TSLAx, nTSLA balance, Position Value = nTSLA × rate
 User specifies TSLAx amount OR nTSLA shares
        ↓ Convert to shares if TSLAx amount (shares = amount / rate)
        ↓ Burn nTSLA from User ATA
-       ↓ CPI: redeemReserveCollateral (shares)
-Kamino Reserve / Mock Lender Pool: cTokens/Shares burned → TSLAx released to Vault TSLAx Custody
-       ↓ Measure TSLAx delta
-Calculate yield = delta - principal_equivalent
-fee = yield × 1000 / 10000
+       ↓ CPI: redeem_reserve_collateral (burn vault shares, pool pays vault custody)
+Mock pool: shares burned → TSLAx released to Vault TSLAx Custody
+       ↓ Measure TSLAx growth (after − before)
+Calculate principal = shares × total_deposits / total_shares
+yield = redeemed − principal; fee = yield × 1000 / 10000
        ↓ Transfer fee → Treasury PDA
-       ↓ Transfer (delta - fee) → User TSLAx ATA
-       ↓ UI refresh
+       ↓ Transfer (redeemed − fee) → User TSLAx ATA
+       ↓ Update totals, UI refresh
 Dashboard updates: balances, yield chart, treasury revenue
 ```
 
 ### Yield Rate Calculation
 ```typescript
-// yield.ts: fetchReserveSnapshot()
-rate = reserve.liquidity.totalAvailableAmount / reserve.collateral.mintTotalSupply
-// Unitless ratio: TSLAx per nTSLA (starts at 1.0, grows with yield)
+// yield.ts: fetchPoolSnapshot() reads Pool bytes directly (no Kamino SDK)
+rate = (total_deposits + yield_accrued) / total_shares  // TSLAx per nTSLA
+apyPct = yield_accrued / total_deposits * 100           // shown as Pool yield
+```
+
+### Zap-In Flow (SOL/USDC → TSLAx → nTSLA)
+```
+User picks SOL/USDC + amount
+       ↓ Live Jupiter v6 quote (browser → quote-api, no key)
+Route found → swap tx → bundle attempt (≤1200B) else sequential → deposit delta
+No route (devnet: TSLAx has no liquidity) → POST /api/zap
+       ↓ Pay treasury (SOL transfer / USDC transfer) → server verifies → mints TSLAx at labeled fixed rate (1 SOL = 10, 1 USDC = 1)
+       ↓ Auto-deposit exact minted amount → nTSLA
 ```
 
 ## Security Architecture
@@ -296,7 +317,7 @@ rate = reserve.liquidity.totalAvailableAmount / reserve.collateral.mintTotalSupp
 
 ### Signer Validation
 - `invoke_signed` with explicit seeds verified in handler
-- `kamino::verify_reserve_accounts` checks all CPI accounts match state
+- `require_keys_eq!` pool/shares/mint/program checks against VaultState in handler
 - `require_keys_eq` on all mint/account constraints
 
 ### Treasury Authority
@@ -344,9 +365,9 @@ TSLAX_FAUCET_KEYPAIR=
 | `@solana/web3.js` | 1.99.0 | RPC, tx building |
 | `@solana/spl-token` | 0.4.15 | Token operations |
 | `@solana/wallet-adapter-*` | 0.9.x / 0.15.x | Wallet connection |
-| `@kamino-finance/klend-sdk` | 12.0.0 | Reserve types (off-chain read only) |
-| `@solana/kit` | 8.3.0 | `Reserve.fetch` for yield rate |
-| `pyth-sdk` / `pyth-client` | — | Price feed (stored, not yet read on-chain) |
+| `@pythnetwork/hermes-client` | 2.1.0 | Hermes REST (server route only; receiver SDK unloadable in this tree) |
+| `@solana/kit` | 8.3.0 | (unused by yield path; pool read is raw bytes) |
+| `pyth-solana-receiver-sdk` (Rust) | 0.1 | On-chain feed id + staleness + Full verification |
 | `recharts` | 2.x | Yield trajectory chart |
 | `next` | 14.2.5 | React framework |
 | `react` | 18.3.1 | UI |
@@ -384,24 +405,18 @@ npm run dev    # localhost:3000
 | Component | Address |
 |-----------|---------|
 | TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
-| Kamino Market | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
-| Kamino Reserve | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
-| cToken Mint | `7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU` |
-| Reserve Supply Vault | `7pF71D7m2NTmX8cFwvUbLFuoqinWmdzYndCHPekCuRTb` |
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
-| Pyth TSLA Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
-| Vault State PDA (v2) | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
+| Vault State PDA | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
 | Vault Authority PDA | `2as7mvTetsHFnArTWfTJu1h4esKrpNDAqyH1zW8vsNor` |
-| Receipt Mint (v2) | `GYoTAg6bicNQcUk2R31JUFxZieSNbm93yGHgcCTw4rjS` |
-| Vault TSLAx Custody | `Ho5YRt373tZkpMN4UXbyqpYbS3NhUovo2DSuMHUnEtTE` |
-| Vault cToken Custody | `DcWmEkL2sbGwVynSvzR1x4YgfwCtsuEsHXokRB6sBh9j` |
-| Treasury PDA | `6gN5rpat4vDVJkFciTQjVp23QzeJh67GtUm8myjfeBrg` |
+| Receipt (nTSLA) Mint | `AMXCrrSXNASso6ANoFsk2zAPUKimGvcCagVfx4Ev5hRA` |
+| Treasury PDA | `CEHuKwAgZp4aaynTo1oivCYT7nRGnWVRW9kSGd5MLmM4` (0.022056 TSLAx skimmed) |
+| Pyth Stub PDA | `2cXuUBQRjeDTJMCXVrq17VrS36spJcyXhxP6AE3HfKoZ` (TSLAx/USD, admin-posted) |
 | Admin / Upgrade Authority | `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` |
-| Obligation PDA (admin) | `8xstbrA8uRJgMQvJGwHUZYdK6it8ToF7NKjdxpYqCpeB` |
-| Mock Lender Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
-| Mock Lender Pool PDA | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
+| Mock Lender v2 Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
+| Mock Lender Pool PDA | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` (30.2 TSLAx deposits, 0.479 yield accrued) |
 | Mock Lender Shares Mint | `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg` |
-| Mock Lender Vault ATA | `6suncjAX9zZ9S44NH3t5LESriEVRJS8FYGoUXkr5osmc` |
+| Meteora LB Pair (nTSLA/USDC) | `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (0.25% fee, seeded 10+10) |
+| Kamino Market/Reserve (superseded) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` / `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
 
 ## Known Limitations (Devnet)
 - **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a SOL reserve placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.

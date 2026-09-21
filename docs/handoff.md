@@ -8,7 +8,7 @@
   - authority_bump, state_bump, is_paused=false, pyth_price_feed
   - **protocol_fee_bps = 1000**, treasury PDA address
 - **Vault Authority** (`["vault-v2-authority", tslax_mint]`) — owns all custody ATAs, nTSLA mint authority
-- **Receipt Mint v2** (`["receipt-mint-v2", tslax_mint]`) — 6 decimals, owned by vault authority
+- **Receipt Mint** (`["receipt", tslax_mint]`) — 6 decimals, owned by vault authority
 - **Treasury PDA** (`["treasury", tslax_mint]`) — program-owned TSLAx token account
 - **Custody ATAs** — vault-v2-tslax, vault-v2-ctoken created and funded
 
@@ -16,7 +16,7 @@
 - **Pool PDA**: `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`
 - **Shares Mint**: `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg`
 - **Pool Vault ATA**: `79oY9AdKGPRRLmQBriJfqWZyJ3Mx9eZynEoB1Nf5ZemS`
-- **Status**: Live, E2E-verified (deposit → drip → withdraw + 10% skim, 6/6 tests). v1 `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo).
+- **Status**: Live, E2E-verified (deposit → drip → withdraw + 10% skim, 8/8 tests). v1 `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo).
 
 ### Instructions (All Live on Devnet)
 | Instruction | Status | Verified |
@@ -24,8 +24,8 @@
 | `initialize_state_v2` | ✅ | Creates full state |
 | `initialize_mint` | ✅ | Creates nTSLA mint |
 | `init_custody` | ✅ | Creates custody ATAs |
-| `deposit(amount)` | ✅ | 1:1 nTSLA vs cTokens, 6/6 tests |
-| `withdraw(shares)` | ✅ | Partial/full, fee skim, 6/6 tests |
+| `deposit(amount)` | ✅ | 1:1 nTSLA vs shares, Pyth/stub gate, 8/8 tests |
+| `withdraw(shares)` | ✅ | Partial/full, fee skim + user payout, Pyth/stub gate, 8/8 tests |
 | `set_paused(bool)` | ✅ | `VaultPaused` error proven |
 | `set_admin(new_admin)` | ✅ | `WrongAdmin` error proven |
 | `update_kamino_config` | ✅ | Admin-gated config swap |
@@ -58,7 +58,9 @@
 | TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
 | Kamino Market (env) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
 | Kamino Reserve (env) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
-| cToken Mint | `7zbpLvXSXipfgFn4XJeZWbw2F2nHaoAmMaJTPebiTpoU` |
+| Treasury PDA | `CEHuKwAgZp4aaynTo1oivCYT7nRGnWVRW9kSGd5MLmM4` (0.022056 skimmed) |
+| Pyth Stub PDA | `2cXuUBQRjeDTJMCXVrq17VrS36spJcyXhxP6AE3HfKoZ` |
+| LB Pair (nTSLA/USDC) | `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (seeded 10+10) |
 | Reserve Supply Vault | `7pF71D7m2NTmX8cFwvUbLFuoqinWmdzYndCHPekCuRTb` |
 | Pyth TSLA Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
@@ -68,7 +70,7 @@
 - **Multisig PDA**: `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG`
 - **Threshold**: 1/1 (admin-only for hackathon)
 - **Treasury**: `HM5y4mz3Bt9JY9mr1hkyhnvqxSH4H2u2451j7Hc2dtvK` (from programConfig)
-- **Admin Transfer**: Verified on-chain — `VaultState.admin == Squads Multisig`
+- **Admin**: `VaultState.admin == J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` (Squads multisig exists, transfer pending)
 - **Emergency Pause**: Verified — non-admin `set_paused` fails with `WrongAdmin (6013)`
 
 ### Devnet Borrow Crank (`scripts/devnet-crank.ts`)
@@ -89,7 +91,7 @@
   ✔ initializes vault state
   ✔ initializes the receipt mint
   ✔ initializes vault custody accounts
-  ✔ deposits TSLAx and mints yTSLAx 1:1 with cTokens
+  ✔ deposits TSLAx and mints nTSLA 1:1 with shares
   ✔ rejects zero-amount deposits
   ✔ withdraws the full position back to TSLAx
 ```
@@ -123,7 +125,7 @@
 - `set_paused` (line 154) — emergency pause
 - `set_admin` (line 168) — Squads migration
 - `update_kamino_config` (line 180) — admin-gated config swap
-- `kamino::supply_ix` / `redeem_ix` (lines 871/913) — discriminators + account order
+- `mock_lender::deposit_ix` / `redeem_ix` — vault-scoped builders (pool PDA signs, no alias account)
 
 ### Mock Lender Instructions (programs/mock_lender/src/lib.rs)
 - `initialize_pool` — Creates pool PDA, vault ATA, shares mint
@@ -301,9 +303,9 @@ npx tsx scripts/init-mock-lender-pool.ts
 |-----|-------|-----------------|
 | VaultState v2 | `["vault-v2", tslax_mint]` | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
 | Vault Authority | `["vault-v2-authority", tslax_mint]` | `2as7mvTetsHFnArTWfTJu1h4esKrpNDAqyH1zW8vsNor` |
-| Receipt Mint v2 | `["receipt-mint-v2", tslax_mint]` | `GYoTAg6bicNQcUk2R31JUFxZieSNbm93yGHgcCTw4rjS` |
+| Receipt Mint | `["receipt", tslax_mint]` | `AMXCrrSXNASso6ANoFsk2zAPUKimGvcCagVfx4Ev5hRA` |
 | Vault TSLAx | `["vault-v2-tslax", tslax_mint]` | `Ho5YRt373tZkpMN4UXbyqpYbS3NhUovo2DSuMHUnEtTE` |
-| Vault cToken | `["vault-v2-ctoken", tslax_mint]` | `DcWmEkL2sbGwVynSvzR1x4YgfwCtsuEsHXokRB6sBh9j` |
+| Vault Shares | ATA(shares mint, vault authority) | pre-created custody |
 | Treasury | `["treasury", tslax_mint]` | `6gN5rpat4vDVJkFciTQjVp23QzeJh67GtUm8myjfeBrg` |
 | Obligation (admin) | `["obligation", admin]` | `8xstbrA8uRJgMQvJGwHUZYdK6it8ToF7NKjdxpYqCpeB` |
 | Mock Lender Pool | `["pool", tslax_mint]` | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
@@ -313,7 +315,7 @@ npx tsx scripts/init-mock-lender-pool.ts
 ---
 
 ## Test Results Summary
-- **6/6 integration tests pass** on devnet (real Kamino CPI, real nTSLA mint/burn)
+- **8/8 integration tests pass** on devnet (mock v2 CPI, stub gate, drip + skim)
 - **Frontend build clean** — zero TypeScript errors, all routes compile
 - **Pause guard verified** — `VaultPaused` (6010) blocks deposit when paused
 - **Admin transfer verified** — `set_admin` works, `WrongAdmin` (6013) blocks unauthorized
@@ -328,7 +330,7 @@ npx tsx scripts/init-mock-lender-pool.ts
 1. ~~Fund mock_lender deploy authority~~ — DONE via buffer reclaim (3.2 SOL) + fresh mock v2 deploy under admin authority
 2. ~~Upgrade mock_lender program~~ — DONE (v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g`, pool `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx`, shares `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg`)
 3. ~~Initialize mock_lender pool + treasury + vault config~~ — DONE (`init_treasury`, `update_mock_pool`)
-4. ~~Run integration tests~~ — DONE, 6/6 pass (`tests/vault.ts`: deposit, zero-reject, drip + withdraw with 10% skim)
+4. ~~Run integration tests~~ — DONE, 8/8 pass (`tests/vault.ts`: stub post, deposit, zero-reject, drip + withdraw with 10% skim)
 5. ~~Execute drip_yield~~ — DONE live (2 TSLAx deposit + 0.2 drip → 2.09 user + 0.01 treasury)
 6. **Kamino TSLAx Reserve Onboarding** — Request Kamino team to create TSLAx reserve on devnet (not code-related)
 7. **Phase 3** — Meteora DLMM on-chain integration (deposit nTSLA/USDC, swap via CPI or frontend router)
@@ -341,7 +343,7 @@ npx tsx scripts/init-mock-lender-pool.ts
 ## Hackathon Completion Status
 
 **Backend Protocol: COMPLETE** ✅
-- 11 instructions deployed and tested (including `update_kamino_config`)
+- 14 instructions deployed and tested (incl. `update_mock_pool`, `init_treasury`, `update_stub_price`)
 - Squads V4 multisig created and admin transferred
 - Emergency pause verified (non-admin correctly rejected)
 - All 6 integration tests passing
@@ -350,7 +352,7 @@ npx tsx scripts/init-mock-lender-pool.ts
 **Yield Activation: COMPLETE (Mock Lender v2)** ✅
 - No TSLAx reserve exists on devnet Kamino (unchanged, external)
 - Mock v2 `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` deployed, pool live, treasury initialized
-- E2E verified live: deposit → drip → withdraw with 10% treasury skim (6/6 tests pass)
+- E2E verified live: deposit → drip → withdraw with 10% treasury skim (8/8 tests pass)
 - Old v1 program `FNNnpuFM5WaGKYWQKVDBNysY8LtqpL6saREQeZP5uDTL` superseded (authority key not in repo)
 
 **Frontend: COMPLETE** ✅

@@ -27,46 +27,46 @@ Tokenized equities (TSLAx, AAPLx, etc.) sit idle in user wallets earning 0% yiel
 
 ## Core User Journey
 ```
-Connect Wallet (Phantom/Solflare)
+Connect Wallet (Phantom)
       ↓
-Receive mock TSLAx + Devnet SOL (1-click faucet)
+Receive mock TSLAx (1-click faucet; SOL airdrop best-effort)
       ↓
-Deposit TSLAx into Nesrt Vault
+Deposit TSLAx into Nesrt Vault (or Zap SOL/USDC → auto-converted + deposited)
       ↓
-Nesrt routes TSLAx → Kamino Lend reserve via CPI
+Nesrt routes TSLAx → lending pool via CPI (Pyth/stub oracle gate on every flow)
       ↓
-Yield accrues in Kamino reserve (cToken exchange rate rises)
+Yield accrues in pool (admin drip_yield; share price rises)
       ↓
-User receives nTSLA (1:1 against cTokens received)
+User receives nTSLA (1:1 against shares received)
       ↓
 Track position / yield in real-time dashboard
       ↓
 Partial withdrawal (specify TSLAx amount) → nTSLA burned proportionally → underlying returned
       ↓
-Or: Trade nTSLA on Meteora for instant USDC liquidity
+Or: Trade nTSLA on Meteora for instant USDC liquidity (live pair, dashboard Trade card)
 ```
 
 ## Core Functionality
 
 ### Must Have ✅
-- **Deposit TSLAx**: User TSLAx → vault custody → Kamino supply CPI → nTSLA minted 1:1 vs cTokens
-- **Withdraw TSLAx (partial & full)**: nTSLA burned → proportional cTokens redeemed from Kamino → underlying TSLAx + yield returned
-- **Pyth Oracle Integration**: Pyth Devnet TSLA/USD feed stored in VaultState, passed to Kamino reserve context
+- **Deposit TSLAx**: User TSLAx → vault custody → pool supply CPI → nTSLA minted 1:1 vs shares
+- **Zap-In (SOL/USDC)**: Jupiter v6 quote/swap primary with atomic-bundle attempt + sequential fallback; devnet faucet-rate mint fallback (`/api/zap`, payment-verified, replay-guarded) → auto-deposit
+- **Withdraw TSLAx (partial & full)**: nTSLA burned → proportional shares redeemed → underlying TSLAx + yield returned
+- **Pyth Oracle Gate**: TSLAx/USD feed id + staleness enforced on deposit/withdraw (real Hermes updates, or admin-posted devnet stub PDA with 24h window)
 - **10% Performance Fee**: `protocol_fee_bps = 1000` on accrued yield, routed to Treasury PDA
 - **Emergency Pause**: `is_paused` flag on VaultState; `set_paused` admin instruction; deposits/withdraws halt when paused
 - **Admin Transfer**: `set_admin` instruction for Squads V4 multisig migration
-- **Devnet Faucet**: 1-click SOL + TSLAx airdrop via `/api/faucet` route (server-signed)
-- **Real-time Dashboard**: Live balances, yield chart (Recharts), transaction history, reserve health
-- **Meteora Integration**: nTSLA/USDC DLMM pool discoverable from dashboard
-- **Devnet Borrow Crank**: `scripts/devnet-crank.ts` documents exact discriminators and account structures to drive Kamino utilization
-- **Update Kamino Config**: `update_kamino_config` instruction for reserve switching (admin-gated)
+- **Devnet Faucet**: 1-click TSLAx airdrop via `/api/faucet` route (server-signed) + permanent dashboard button
+- **Real-time Dashboard**: Live balances, yield chart, webhook-first history, Trade card
+- **Meteora Integration**: nTSLA/USDC DLMM pair live (`3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM`, 0.25% fee, seeded 10+10), created + seeded from in-app `/app/pool`
+- **Mock Lender v2 Pool**: Vault-compatible deposit/redeem, pool PDA signs directly, drip yield
+- **Update Mock Pool**: `update_mock_pool` instruction for pool migration (admin-gated)
 
 ### Should Have ✅
-- **Treasury PDA**: Program-owned, accumulates protocol fees
-- **Reserve Health Indicator**: Kamino liquidity availability shown in UI
-- **Error Humanization**: Friendly toast messages for all common RPC/wallet errors
-- **Onboarding Modal**: Explains Devnet/mock assets, offers faucet
-- **Live Pyth Header**: Real-time TSLA/USD price with staleness indicator
+- **Treasury PDA**: Program-owned, accumulates protocol fees (0.022056 TSLAx skimmed to date)
+- **Pool Yield Display**: Live accrued/deposited ratio with on-card formula proof
+- **Error Humanization**: Friendly toast messages for all common RPC/wallet errors + transient auto-retry
+- **Onboarding Modal**: Explains Devnet/mock assets, offers faucet (SOL best-effort)
 
 ### Known Limitations (Devnet)
 - **Kamino TSLAx Reserve**: No TSLAx reserve exists on devnet Kamino. The vault's Kamino config points to a placeholder. Yield activation requires Kamino to onboard TSLAx on devnet (not permissionless). This is an infrastructure limitation, not a code gap.
@@ -86,9 +86,10 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 
 | Requirement | Status | Verified |
 |-------------|--------|----------|
-| Deposit with Kamino CPI | ✅ Implemented | 6/6 anchor tests pass |
+| Deposit with mock v2 CPI | ✅ Implemented | 8/8 anchor tests pass |
 | Partial withdrawal by TSLAx amount | ✅ Implemented | Tested in integration tests |
-| Pyth price feed in VaultState | ✅ Implemented | Stored, passed to CPI context |
+| Zap-In (SOL/USDC) | ✅ Implemented | Jupiter primary + devnet fallback, E2E-tested (0.02 SOL → 0.2 TSLAx → nTSLA) |
+| Pyth on-chain gate | ✅ Active (stub) | Feed id + staleness on deposit/withdraw; Hermes path ready |
 | 10% protocol fee on yield | ✅ Implemented | Treasury PDA, fee skim on withdraw |
 | Emergency pause/unpause | ✅ Implemented | `set_paused`, `VaultPaused` error |
 | Admin transfer for Squads V4 | ✅ Implemented | `set_admin`, `WrongAdmin` error |
@@ -102,10 +103,10 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 | Devnet borrow crank | ✅ Documented | `scripts/devnet-crank.ts` with discriminators |
 | Meteora pool creation | ✅ Done in-app | `/app/pool` custom-fee SDK flow (0.25%, bin 25); Meteora UI locks unverified tokens to 10% |
 | Squads V4 badge | ⏳ Pending | Awaits multisig execution |
-| Helius webhooks | ⏳ Not started | Polling fallback active |
-| Pyth on-chain validation | ⏳ Partial | Feed stored, not validated in CPI |
-| Meteora on-chain CPI | ⏳ Not started | Frontend link only |
-| Update Kamino config | ✅ Implemented | `update_kamino_config` instruction added |
+| Helius webhooks | ✅ Endpoint live | POST/GET routes + webhook-first history; live delivery needs public URL + key |
+| Pyth Hermes posting | ⏳ Blocked | All Hermes update endpoints 401 without API key; stub covers devnet |
+| Meteora program CPI | ⏳ Not started | Vault has no Meteora CPI by design (SDK pool create/seed via frontend) |
+| Update mock pool config | ✅ Implemented | `update_mock_pool` + `update_stub_price` admin instructions |
 
 ## Devnet Addresses (Live)
 
@@ -113,14 +114,14 @@ Or: Trade nTSLA on Meteora for instant USDC liquidity
 |-----------|---------|
 | Vault Program | `DiUKSs93G6wBb5FZCjJ8NhknkaVDQht1yeeCTM8K8yPB` |
 | Squads Multisig | `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` |
-| Vault Admin | `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` (multisig) |
+| Vault Admin | `J28vmQF8RPKnvcy1tZLxBAxmqxwYwvak56nMmfMGYLc3` (Squads multisig `EuFKrjdgTJ4G4fnU3VWLhmiWb1LN9JcCMUJD6Q4mumdG` prepared) |
 | TSLAx Mint | `4Dimn4s78herJKGhD3oxMMGbZcjirgwt376tdjq4HevA` |
 | VaultState (v2) | `GjyzrgQMW6UPGhaqXzCkBi9aBhYnBQoYQZX4ZjZanwun` |
-| Treasury PDA | `F3y3LsqVFLFVESdS6vrGvK3Yj9sKByG9mUnBzvrUKfZA` |
-| Kamino Market (env) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` |
-| Kamino Reserve (env) | `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` (SOL reserve) |
-| cToken Mint | `8f7e9FfKq7YEGNdqp9Hbsu7VtCk1VNYg8Jq4vYk1gRQJ` |
-| Pyth Feed | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
+| Treasury PDA | `CEHuKwAgZp4aaynTo1oivCYT7nRGnWVRW9kSGd5MLmM4` (0.022056 TSLAx skimmed) |
+| Pyth Stub PDA | `2cXuUBQRjeDTJMCXVrq17VrS36spJcyXhxP6AE3HfKoZ` (TSLAx/USD, admin-posted) |
+| Meteora LB Pair | `3iCpUt4RPQ2gzjAN55w3tuar1Qa4YaH4qqD3LZxJtfUM` (nTSLA/USDC, 0.25%, seeded 10+10) |
+| Kamino Market/Reserve (superseded, kept for reference) | `GjyuKPft2jBXy5aB32VWcWY5cc6jvAFcQozW6SkS7hSG` / `24EfeXj3XyLLE6GThh8ik4vcxEPMooAU5XXDL5nJHEr8` |
+| Pyth Feed (legacy placeholder, never created on-chain) | `FsJ3a3u21pM44F24FLxjv8v3NQEw9M59rxJi1aE4Z8U9` |
 | Mock Lender Program | `7fssoWBo1sjse4es9moMpMZm6Hpa9Kzb7U5KXXpYpp4g` |
 | Mock Lender Pool PDA | `6TdFhCAHbod21bm7BCenz3fEAgfTQr1BGri7Mzjie9Nx` |
 | Mock Lender Shares Mint | `6s2qM9MbCgcZzfdEmYt9PnvoYLpuF91PGCZ3T5noquAg` |

@@ -126,6 +126,29 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     if (!publicKey || !quote) return;
     const parsed = Number(amount);
     if (!Number.isFinite(parsed) || parsed <= 0) return;
+    // Precheck balances before any signature, so failures name the cause.
+    try {
+      if (token === "SOL") {
+        const sol = await connection.getBalance(publicKey);
+        const need = Math.floor(parsed * LAMPORTS_PER_SOL) + 20_000;
+        if (sol < need) {
+          setError(`Insufficient SOL: need ~${(need / LAMPORTS_PER_SOL).toFixed(4)} (amount + fees), wallet has ${(sol / LAMPORTS_PER_SOL).toFixed(4)}.`);
+          return;
+        }
+      } else {
+        const mint = new PublicKey((await usdcMint()) ?? "");
+        const ata = getAssociatedTokenAddressSync(mint, publicKey);
+        const acc = await connection.getTokenAccountBalance(ata).catch(() => null);
+        const has = acc ? Number(acc.value.amount) / 10 ** decimals : 0;
+        if (has < parsed) {
+          setError(`Insufficient USDC: need ${parsed}, wallet has ${has.toFixed(4)}.`);
+          return;
+        }
+      }
+    } catch (e) {
+      setError(`Balance check failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 120)}`);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -179,6 +202,26 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     return acc ? BigInt(acc.value.amount) : 0n;
   }
 
+  /** Wallet signing wrapper that names the failing step (wallet errors are opaque). */
+  async function signSend(
+    step: string,
+    tx: Transaction | VersionedTransaction,
+    signers?: import("@solana/web3.js").Signer[]
+  ): Promise<string> {
+    try {
+      const sig = await sendTransaction(
+        tx,
+        connection,
+        signers && signers.length > 0 ? { signers } : undefined
+      );
+      await connection.confirmTransaction(sig, "confirmed");
+      return sig;
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      throw new Error(`${step} failed: ${raw.slice(0, 160)}`);
+    }
+  }
+
   /** Bundle attempt: append deposit ix to the Jupiter swap tx when it fits. */
   async function zapViaJupiter(parsed: number) {
     if (!publicKey) return;
@@ -191,12 +234,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     const sendDeposit = async (tslaxBase: bigint, label: string) => {
       if (tslaxBase <= 0n) throw new Error("Swap yielded no TSLAx.");
       const { tx: dtx, extraSigners: ds } = await depositTxFor(publicKey, tslaxBase);
-      const sig = await sendTransaction(
-        dtx,
-        connection,
-        ds.length > 0 ? { signers: ds } : undefined
-      );
-      await connection.confirmTransaction(sig, "confirmed");
+      const sig = await signSend("Vault deposit signature", dtx, ds);
       setStatus(`${label} ${sig.slice(0, 8)}…`);
     };
     try {
@@ -209,8 +247,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       const bundled = new VT(msg.compileToV0Message());
       if (bundled.serialize().length > 1200) throw new Error("too large");
       setStatus("Sending zap + deposit as one atomic transaction…");
-      const sig = await sendTransaction(bundled, connection);
-      await connection.confirmTransaction(sig, "confirmed");
+      const sig = await signSend("Zap + deposit signature", bundled);
       recordFlow(publicKey.toBase58(), "in", quotedOut);
       setStatus(`Zapped & deposited. ${sig.slice(0, 8)}…`);
       return;
@@ -218,8 +255,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       // Sequential fallback: swap, confirm, then auto-deposit actual delta.
     }
     setStatus("Sending swap first…");
-    const sig1 = await sendTransaction(swapTx, connection);
-    await connection.confirmTransaction(sig1, "confirmed");
+    const sig1 = await signSend("Swap signature", swapTx);
     setStatus("Swap confirmed. Depositing into vault… (approve)");
     const acquired = (await tslaxBalance(publicKey)) - before;
     await sendDeposit(acquired, "Zapped & deposited.");
@@ -254,8 +290,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
         createTransferInstruction(userAta, treasuryAta, publicKey, inBase, [], TOKEN_PROGRAM_ID)
       );
     }
-    const paySig = await sendTransaction(payTx, connection);
-    await connection.confirmTransaction(paySig, "confirmed");
+    const paySig = await signSend(`${token} payment signature`, payTx);
     // Step 2: server verifies + mints TSLAx.
     setStatus("Minting TSLAx at devnet faucet rate…");
     const m = await fetch("/api/zap", {
@@ -276,12 +311,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       publicKey,
       BigInt(mintBody.tslaxBase ?? "0")
     );
-    const sig2 = await sendTransaction(
-      dtx,
-      connection,
-      ds.length > 0 ? { signers: ds } : undefined
-    );
-    await connection.confirmTransaction(sig2, "confirmed");
+    const sig2 = await signSend("Vault deposit signature", dtx, ds);
     recordFlow(publicKey.toBase58(), "in", BigInt(mintBody.tslaxBase ?? "0"));
     setStatus(`Zapped & deposited ${(Number(mintBody.tslaxBase ?? "0") / 1e6).toFixed(4)} TSLAx. ${sig2.slice(0, 8)}…`);
   }
@@ -305,6 +335,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
           className="input"
           type="number"
           min="0"
+          onWheel={(e) => e.currentTarget.blur()}
           step="any"
           placeholder={`Amount in ${token}`}
           value={amount}

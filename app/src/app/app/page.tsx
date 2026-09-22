@@ -289,6 +289,7 @@ export default function VaultPage() {
                     type="number"
                     min="0"
                     step="any"
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder={tab === "vault" ? "Amount of TSLAx to Vault" : "Amount to unvault, empty for full"}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}

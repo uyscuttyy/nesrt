@@ -53,7 +53,7 @@ export default function YieldChart({ profit }: { profit: number | null }) {
   if (points.length < 2) {
     return (
       <div className="card">
-        <span className="label">Profit trajectory</span>
+        <span className="label">Profit earned</span>
         <p className="muted">
           {profit === null
             ? "Vault once to start tracking real earnings."
@@ -63,9 +63,7 @@ export default function YieldChart({ profit }: { profit: number | null }) {
     );
   }
 
-  const first = points[0].v;
   const last = points[points.length - 1].v;
-  const delta = last - first;
   const data = points.map((p) => ({
     ...p,
     time: new Date(p.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -73,14 +71,12 @@ export default function YieldChart({ profit }: { profit: number | null }) {
 
   return (
     <div className="card">
-      <span className="label">Profit trajectory</span>
+      <span className="label">Profit earned</span>
       <strong>
         {last >= 0 ? "+" : ""}
-        {last.toFixed(6)} TSLAx{" "}
-        <span className={delta >= 0 ? "up" : "down"}>
-          ({delta >= 0 ? "+" : ""}{delta.toFixed(6)} since tracking)
-        </span>
+        {last.toFixed(6)} TSLAx
       </strong>
+      <span className="fine">Real earnings only — deposits never count. Chart shows growth over time.</span>
       <div style={{ width: "100%", height: 220 }}>
         <ResponsiveContainer>
           <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>

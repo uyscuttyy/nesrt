@@ -392,8 +392,8 @@ export default function PoolPage() {
                 </a>
               </div>
               <p className="fine">
-                Next: add liquidity (e.g. 10 nTSLA + 10 USDC) on the Meteora pool page, then send
-                this address to the team to wire into the dashboard.
+                This pool is live and wired into the dashboard Trade card. Adding
+                more liquidity below opens a second position alongside any existing one.
               </p>
               <div className="actions">
                 <button className="cta" onClick={() => void onSeed()} disabled={busy}>

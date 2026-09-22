@@ -34,12 +34,12 @@ export default function Landing() {
       </header>
 
       <section className="wrap hero">
-        <p className="kicker">Tokenized TSLA, at work</p>
-        <h1>Wake up your sleeping capital.</h1>
+        <p className="kicker">Tokenized equities, working</p>
+        <h1>Put your on-chain stocks to work.</h1>
         <p className="lede">
-          Your TSLAx sits idle in your wallet. Vault it once and earn real
-          lending yield, without managing positions, rates, or
-          LTVs.
+          Why watch numbers across pools when one vault does it for you?
+          Deposit TSLAx once — lending yield accrues, nTSLA stays liquid,
+          withdraw anytime.
         </p>
         <div className="cta-row">
           <Link className="cta" href="/app">

@@ -12,6 +12,7 @@ import { friendlyError } from "../../../errors";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import ThemeToggle from "@/components/ThemeToggle";
 import { ToastStack, useToasts } from "@/components/Toasts";
+import AppNav from "@/components/AppNav";
 
 const BIN_STEP = 25;
 const FEE_BPS = 25; // 0.25%
@@ -321,12 +322,13 @@ export default function PoolPage() {
         </div>
       </header>
 
-      <h1>Liquidity pool</h1>
-      <p className="muted">
+      <h1>Liquidity pool</h1>      <p className="muted">
         Creates the nTSLA/USDC DLMM pool with a custom 0.25% fee. Meteora&apos;s UI only offers a
         10% tier for unverified devnet tokens, so this page builds that transaction for your
         Phantom to sign. Add liquidity afterwards on the pool&apos;s Meteora page.
       </p>
+
+      <AppNav />
 
       {!connected ? (
         <p className="muted">Connect Phantom to continue.</p>

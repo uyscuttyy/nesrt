@@ -8,8 +8,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { TSLAX_MINT, LB_PAIR_ADDRESS } from "../../config";
 import { fetchPoolSnapshot, PoolSnapshot } from "../../yield";
-import { fetchVaultHistory, VaultEvent } from "../../history";
+import { fetchVaultHistory, invalidateHistoryCache, VaultEvent } from "../../history";
 import { friendlyError } from "../../errors";
+import { ensureBaseline, profitUi, recordFlow } from "../../flows";
 import {
   buildDepositTx,
   buildWithdrawTx,
@@ -86,6 +87,27 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, [refresh, refreshHistory]);
 
+  // Simulated borrow-interest crank: keeps yield visibly ticking on devnet.
+  // Server rate-limits to one drip per 5 min; failures are silent.
+  useEffect(() => {
+    if (!connected) return;
+    let stopped = false;
+    const crank = async () => {
+      try {
+        const res = await fetch("/api/crank", { method: "POST" });
+        if (res.ok && !stopped) await refresh();
+      } catch {
+        /* crank is best-effort */
+      }
+    };
+    void crank();
+    const id = setInterval(() => void crank(), 5 * 60 * 1000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [connected, refresh]);
+
   useEffect(() => {
     if (!connected || !publicKey) return;
     try {
@@ -125,14 +147,36 @@ export default function Dashboard() {
     }
   }
 
-  async function submit(build: () => Promise<{ sig: string }>, retries = 1) {
+  async function submit(
+    build: () => Promise<{ sig: string }>,
+    flow?: "deposit" | "withdraw",
+    retries = 1
+  ) {
+    const before = balances.tslax;
     setBusy(true);
     try {
       const { sig } = await build();
       await connection.confirmTransaction(sig, "confirmed");
       setAmount("");
       await refresh();
+      if (publicKey) invalidateHistoryCache(publicKey);
       await refreshHistory();
+      // Record true cost basis from on-chain balance movement (not estimates).
+      if (flow && publicKey && before !== null) {
+        try {
+          const afterAcc = await connection.getTokenAccountBalance(
+            getAssociatedTokenAddressSync(new PublicKey(TSLAX_MINT), publicKey)
+          );
+          const after = BigInt(afterAcc.value.amount);
+          if (flow === "deposit" && after < before) {
+            recordFlow(publicKey.toBase58(), "in", before - after);
+          } else if (flow === "withdraw" && after > before) {
+            recordFlow(publicKey.toBase58(), "out", after - before);
+          }
+        } catch {
+          /* balance read failed — profit falls back gracefully */
+        }
+      }
     } catch (e) {
       // Devnet RPC flakes (stale blockhash, 429, preflight timeouts): nothing
       // landed, so one retry with a fresh transaction is safe.
@@ -144,7 +188,7 @@ export default function Dashboard() {
       if (transient) {
         await new Promise((r) => setTimeout(r, 1200));
         setBusy(false);
-        return submit(build, retries - 1);
+        return submit(build, flow, retries - 1);
       }
       push(friendlyError(e));
     } finally {
@@ -171,7 +215,7 @@ export default function Dashboard() {
         extraSigners.length > 0 ? { signers: extraSigners } : undefined
       );
       return { sig };
-    });
+    }, "deposit");
   }
 
   function onUnvault(full: boolean) {
@@ -215,7 +259,7 @@ export default function Dashboard() {
         extraSigners.length > 0 ? { signers: extraSigners } : undefined
       );
       return { sig };
-    });
+    }, "withdraw");
   }
 
   function useMax() {
@@ -239,6 +283,17 @@ export default function Dashboard() {
     positionValue !== null
       ? positionValue + (balances.tslax !== null ? toUiAmount(balances.tslax) : 0)
       : null;
+
+  // True profit (position + withdrawn − deposited), baselined once so legacy
+  // positions start at 0 instead of reading deposits as profit.
+  const ownerKey = publicKey?.toBase58() ?? null;
+  if (ownerKey && balances.ntsla !== null && rate !== null && rate > 0) {
+    ensureBaseline(
+      ownerKey,
+      BigInt(Math.floor(toUiAmount(balances.ntsla) * rate * 10 ** 6))
+    );
+  }
+  const { profit } = profitUi(positionValue, ownerKey);
 
   let advanced: ReturnType<typeof deriveAddresses> | null = null;
   try {
@@ -291,7 +346,12 @@ export default function Dashboard() {
             <div className="card">
               <span className="label">Vaulted TSLAx</span>
               <strong>{positionValue === null ? "—" : `${positionValue.toFixed(6)} TSLAx`}</strong>
-              <span className="fine">Working in the lending pool. Withdraw anytime.</span>
+              <span className="fine">
+                Working in the lending pool. Withdraw anytime.
+                {balances.ntsla !== null && balances.ntsla > 0n
+                  ? ` Wallet holds ${toUiAmount(balances.ntsla).toFixed(2)} nTSLA (nTSLA moved to Meteora no longer counts here).`
+                  : ""}
+              </span>
             </div>
             <div className="card">
               <span className="label">Pool yield</span>
@@ -368,7 +428,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          <YieldChart value={positionValue} />
+          <YieldChart profit={profit} />
 
           <TradeCard />
 
@@ -400,8 +460,6 @@ export default function Dashboard() {
               </div>
             ) : null}
           </div>
-
-          <HistoryTimeline events={history} />
         </div>
       )}
       {showOnboarding && connected ? (
@@ -427,6 +485,7 @@ function TradeCard() {
         nTSLA/USDC · 0.25% fee
       </strong>
       <span className="fine">Live DLMM pool on devnet. Swap without unvaulting.</span>
+      <span className="fine">Unverified tokens: Meteora may not load metadata or prices — the pool still works.</span>
       <div className="actions">
         <a
           className="cta"

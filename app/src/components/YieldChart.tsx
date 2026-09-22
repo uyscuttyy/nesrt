@@ -12,11 +12,15 @@ import {
 
 type Point = { t: number; v: number };
 
-const KEY = "tslax-yield-history-v1";
+const KEY = "nesrt-profit-history-v1";
 const MAX_POINTS = 200;
 
-/** Yield trajectory from live position snapshots, persisted locally. */
-export default function YieldChart({ value }: { value: number | null }) {
+/**
+ * Profit trajectory: plots real earnings only (position + withdrawn −
+ * deposited), so deposits never masquerade as profit. Empty state explains
+ * itself; delta is profit change since tracking started.
+ */
+export default function YieldChart({ profit }: { profit: number | null }) {
   const [points, setPoints] = useState<Point[]>([]);
 
   useEffect(() => {
@@ -29,9 +33,13 @@ export default function YieldChart({ value }: { value: number | null }) {
   }, []);
 
   useEffect(() => {
-    if (value === null) return;
+    if (profit === null || !Number.isFinite(profit)) return;
     setPoints((prev) => {
-      const next = [...prev, { t: Date.now(), v: value }];
+      const last = prev[prev.length - 1];
+      if (last && Math.abs(last.v - profit) < 1e-9 && Date.now() - last.t < 60_000) {
+        return prev;
+      }
+      const next = [...prev, { t: Date.now(), v: profit }];
       const trimmed = next.slice(-MAX_POINTS);
       try {
         localStorage.setItem(KEY, JSON.stringify(trimmed));
@@ -40,14 +48,16 @@ export default function YieldChart({ value }: { value: number | null }) {
       }
       return trimmed;
     });
-  }, [value]);
+  }, [profit]);
 
   if (points.length < 2) {
     return (
       <div className="card">
-        <span className="label">Yield trajectory</span>
+        <span className="label">Profit trajectory</span>
         <p className="muted">
-          Your position chart starts building after your first deposits.
+          {profit === null
+            ? "Vault once to start tracking real earnings."
+            : "Earning history builds as yield accrues — deposits never count as profit."}
         </p>
       </div>
     );
@@ -63,11 +73,12 @@ export default function YieldChart({ value }: { value: number | null }) {
 
   return (
     <div className="card">
-      <span className="label">Yield trajectory</span>
+      <span className="label">Profit trajectory</span>
       <strong>
+        {last >= 0 ? "+" : ""}
         {last.toFixed(6)} TSLAx{" "}
         <span className={delta >= 0 ? "up" : "down"}>
-          ({delta >= 0 ? "+" : ""}{delta.toFixed(6)})
+          ({delta >= 0 ? "+" : ""}{delta.toFixed(6)} since tracking)
         </span>
       </strong>
       <div style={{ width: "100%", height: 220 }}>
@@ -82,7 +93,7 @@ export default function YieldChart({ value }: { value: number | null }) {
               domain={["auto", "auto"]}
               tickFormatter={(v: number) => v.toFixed(2)}
             />
-            <Tooltip formatter={(v) => [`${Number(v).toFixed(6)} TSLAx`, "Position"]} />
+            <Tooltip formatter={(v) => [`${Number(v).toFixed(6)} TSLAx profit`, "Profit"]} />
             <Area type="monotone" dataKey="v" strokeWidth={2} fillOpacity={0.18} />
           </AreaChart>
         </ResponsiveContainer>

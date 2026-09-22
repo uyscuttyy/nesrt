@@ -57,11 +57,25 @@ async function fetchWebhookHistory(owner: PublicKey, limit: number): Promise<Vau
   return Array.isArray(body.events) ? body.events : [];
 }
 
+const RPC_CACHE_TTL_MS = 90_000;
+type RpcCache = { at: number; events: VaultEvent[] };
+const rpcCache = new Map<string, RpcCache>();
+
+/** Drop cached history (call after the user lands a new transaction). */
+export function invalidateHistoryCache(owner: PublicKey): void {
+  rpcCache.delete(owner.toBase58());
+}
+
 async function fetchRpcHistory(
   connection: Connection,
   owner: PublicKey,
   limit = 20
 ): Promise<VaultEvent[]> {
+  // Session cache: a full signature scan is up to ~60 RPC calls; reuse for 90s.
+  const cached = rpcCache.get(owner.toBase58());
+  if (cached && Date.now() - cached.at < RPC_CACHE_TTL_MS) {
+    return cached.events.slice(0, limit);
+  }
   const programId = new PublicKey(VAULT_PROGRAM_ID);
   const sigs = await connection.getSignaturesForAddress(owner, { limit: 60 });
   const out: VaultEvent[] = [];
@@ -127,5 +141,6 @@ async function fetchRpcHistory(
       }
     }
   }
+  rpcCache.set(owner.toBase58(), { at: Date.now(), events: out });
   return out;
 }

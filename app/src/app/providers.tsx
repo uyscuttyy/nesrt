@@ -2,7 +2,7 @@
 
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
+import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { useMemo } from "react";
 import { SOLANA_RPC_URL } from "../config";
 import { ThemeProvider } from "@/components/ThemeProvider";

@@ -11,8 +11,9 @@ import {
 import { useState } from "react";
 import { TSLAX_MINT } from "../config";
 import { friendlyError } from "../errors";
-import { buildDepositTx, toBaseUnits } from "../vault";
+import { buildDepositTx } from "../vault";
 import { fetchAndBuildPriceUpdate } from "../pyth";
+import { recordFlow } from "../flows";
 
 export type ZapToken = "SOL" | "USDC";
 
@@ -54,24 +55,29 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     const inBase = BigInt(Math.floor(parsed * 10 ** decimals));
     setQuoting(true);
     try {
-      // 1) Live Jupiter quote (works wherever routes exist).
-      const q = await fetch(
-        `${JUP_QUOTE_URL}?inputMint=${inputMint}&outputMint=${TSLAX_MINT}&amount=${inBase.toString()}&slippageBps=100`
-      );
-      if (q.ok) {
-        const body = (await q.json()) as {
-          outAmount?: string;
-          routePlan?: unknown[];
-        };
-        if (body.routePlan?.length && body.outAmount) {
-          setQuote({
-            source: "jupiter",
-            outBase: BigInt(body.outAmount),
-            routeLabel: `Jupiter · ${(Number(body.outAmount) / 1e6).toFixed(4)} TSLAx`,
-            quoteResponse: body,
-          });
-          return;
+      // 1) Live Jupiter quote (works wherever routes exist). Network failure
+      // must NOT skip the devnet fallback below.
+      try {
+        const q = await fetch(
+          `${JUP_QUOTE_URL}?inputMint=${inputMint}&outputMint=${TSLAX_MINT}&amount=${inBase.toString()}&slippageBps=100`
+        );
+        if (q.ok) {
+          const body = (await q.json()) as {
+            outAmount?: string;
+            routePlan?: unknown[];
+          };
+          if (body.routePlan?.length && body.outAmount) {
+            setQuote({
+              source: "jupiter",
+              outBase: BigInt(body.outAmount),
+              routeLabel: `Jupiter · ${(Number(body.outAmount) / 1e6).toFixed(4)} TSLAx`,
+              quoteResponse: body,
+            });
+            return;
+          }
         }
+      } catch {
+        /* Jupiter unreachable — devnet fallback below */
       }
       // 2) Devnet fallback: fixed faucet rate.
       const r = await fetch("/api/zap");
@@ -205,6 +211,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       setStatus("Sending zap + deposit as one atomic transaction…");
       const sig = await sendTransaction(bundled, connection);
       await connection.confirmTransaction(sig, "confirmed");
+      recordFlow(publicKey.toBase58(), "in", quotedOut);
       setStatus(`Zapped & deposited. ${sig.slice(0, 8)}…`);
       return;
     } catch {
@@ -216,6 +223,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     setStatus("Swap confirmed. Depositing into vault… (approve)");
     const acquired = (await tslaxBalance(publicKey)) - before;
     await sendDeposit(acquired, "Zapped & deposited.");
+    recordFlow(publicKey.toBase58(), "in", acquired > 0n ? acquired : 0n);
   }
 
   async function zapViaDevnet(parsed: number) {
@@ -274,6 +282,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       ds.length > 0 ? { signers: ds } : undefined
     );
     await connection.confirmTransaction(sig2, "confirmed");
+    recordFlow(publicKey.toBase58(), "in", BigInt(mintBody.tslaxBase ?? "0"));
     setStatus(`Zapped & deposited ${(Number(mintBody.tslaxBase ?? "0") / 1e6).toFixed(4)} TSLAx. ${sig2.slice(0, 8)}…`);
   }
 

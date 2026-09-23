@@ -3,7 +3,7 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, VersionedTransaction } from "@solana/web3.js";
 import {
-  createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   createTransferInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -234,6 +234,8 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
     const sendDeposit = async (tslaxBase: bigint, label: string) => {
       if (tslaxBase <= 0n) throw new Error("Swap yielded no TSLAx.");
       const { tx: dtx, extraSigners: ds } = await depositTxFor(publicKey, tslaxBase);
+      dtx.feePayer = publicKey;
+      dtx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       const sig = await signSend("Vault deposit signature", dtx, ds);
       setStatus(`${label} ${sig.slice(0, 8)}…`);
     };
@@ -280,16 +282,18 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       const mint = new PublicKey(cfg.usdcMint);
       const userAta = getAssociatedTokenAddressSync(mint, publicKey);
       const treasuryAta = new PublicKey(cfg.treasuryUsdcAta);
-      const info = await connection.getAccountInfo(treasuryAta);
-      if (!info) {
-        payTx.add(
-          createAssociatedTokenAccountInstruction(publicKey, treasuryAta, treasury, mint)
-        );
-      }
+      // Idempotent create: no existence pre-check RPC that can misfire.
+      payTx.add(
+        createAssociatedTokenAccountIdempotentInstruction(publicKey, treasuryAta, treasury, mint)
+      );
       payTx.add(
         createTransferInstruction(userAta, treasuryAta, publicKey, inBase, [], TOKEN_PROGRAM_ID)
       );
     }
+    // Explicit payer + blockhash: the adapter throws opaquely when it must
+    // prepare these itself on multi-instruction token txs.
+    payTx.feePayer = publicKey;
+    payTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
     const paySig = await signSend(`${token} payment signature`, payTx);
     // Step 2: server verifies + mints TSLAx.
     setStatus("Minting TSLAx at devnet faucet rate…");
@@ -311,6 +315,8 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       publicKey,
       BigInt(mintBody.tslaxBase ?? "0")
     );
+    dtx.feePayer = publicKey;
+    dtx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
     const sig2 = await signSend("Vault deposit signature", dtx, ds);
     recordFlow(publicKey.toBase58(), "in", BigInt(mintBody.tslaxBase ?? "0"));
     setStatus(`Zapped & deposited ${(Number(mintBody.tslaxBase ?? "0") / 1e6).toFixed(4)} TSLAx. ${sig2.slice(0, 8)}…`);

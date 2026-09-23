@@ -262,7 +262,7 @@ export default function VaultPage() {
                 [
                   ["vault", "Vault"],
                   ["unvault", "Unvault"],
-                  ["zap", "Zap ⚡"],
+                  ["zap", "Zap"],
                 ] as const
               ).map(([key, label]) => (
                 <button

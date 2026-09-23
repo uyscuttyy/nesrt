@@ -211,13 +211,12 @@ export default function VaultPage() {
     <main>
       <Navbar />
       <div className="wrap sanctuary">
-        <p className="eyebrow">Nesrt Vault · Solana Devnet</p>
-        <h1 className="display">NESRT VAULT</h1>
+        <p className="eyebrow eyebrow-centered">Nesrt Vault · Solana Devnet</p>
         <div className="tagline-row">
-          <p className="muted tagline">Put your on chain stocks to work while you rest</p>
+          <p className="tagline-boldo tagline">Put your on chain stocks to work while you rest</p>
           {connected ? (
             <button className="ghost ghost-sm" onClick={() => void onFaucet()} disabled={busy}>
-              {busy ? "Working…" : "Mint TSLAx"}
+              {busy ? "Working…" : "mint test tslax"}
             </button>
           ) : null}
         </div>
@@ -250,7 +249,7 @@ export default function VaultPage() {
                   [
                     ["vault", "Vault"],
                     ["unvault", "Unvault"],
-                    ["zap", "Zap ⚡️"],
+                    ["zap", "Zap"],
                   ] as const
                 ).map(([key, label]) => (
                   <button

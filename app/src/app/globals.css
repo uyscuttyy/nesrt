@@ -627,9 +627,21 @@ a {
 }
 
 /* ---- Vault display title + tagline row ---- */
+@font-face {
+  font-family: "Boldo";
+  src: url("/fonts/BoldodemoRegular-Wp6wE.otf") format("opentype");
+  font-weight: 400 900;
+  font-display: swap;
+}
+
 .display {
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+.tagline-boldo {
+  font-family: "Boldo", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
 }
 
 .tagline-row {
@@ -643,7 +655,25 @@ a {
 
 .tagline {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.35rem;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.eyebrow-centered {
+  text-align: center;
+}
+
+.action-card .tabs {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.action-card .input {
+  max-width: 22rem;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
 }
 
 /* ---- Centered action card ---- */

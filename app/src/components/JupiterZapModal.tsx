@@ -221,6 +221,20 @@ export default function JupiterZapModal({
     signers?: import("@solana/web3.js").Signer[]
   ): Promise<string> {
     try {
+      // Simulate first: surfaces program errors + logs instead of an opaque
+      // wallet failure after signing.
+      if (tx instanceof Transaction && !tx.recentBlockhash) {
+        tx.feePayer = tx.feePayer ?? publicKey ?? undefined;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      }
+      const sim = await connection.simulateTransaction(
+        tx as VersionedTransaction,
+        { commitment: "confirmed" }
+      );
+      if (sim.value.err) {
+        const logs = sim.value.logs?.slice(-3).join(" | ") ?? "";
+        throw new Error(`Simulation failed: ${JSON.stringify(sim.value.err)} ${logs}`.slice(0, 200));
+      }
       const sig = await sendTransaction(
         tx,
         connection,

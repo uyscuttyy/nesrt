@@ -2,7 +2,21 @@
 
 import { VaultEvent } from "../history";
 
-/** Shared transaction history: status badges + short hashes + explorer links. */
+function shortSig(sig: string): string {
+  return sig.length > 12 ? `${sig.slice(0, 4)}…${sig.slice(-4)}` : sig;
+}
+
+function fmtDate(t: number | null): string {
+  return t ? new Date(t * 1000).toLocaleDateString() : "—";
+}
+
+function fmtTime(t: number | null): string {
+  return t
+    ? new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "—";
+}
+
+/** Transaction history as a real table: Action / Amount / Hash / Date / Time. */
 export default function HistoryTimeline({
   events,
   compact,
@@ -22,26 +36,42 @@ export default function HistoryTimeline({
   return (
     <div className="card" style={{ marginTop: "1rem" }}>
       <span className="label">Transaction history</span>
-      <ul className="timeline">
-        {shown.map((e) => (
-          <li key={e.signature}>
-            <span className="badge-ok">{e.kind === "deposit" ? "Vaulted" : "Unvaulted"}</span>{" "}
-            <span className="muted">{e.tslax.toFixed(6)} TSLAx</span>{" "}
-            <a
-              className="fine tx-hash"
-              href={`https://explorer.solana.com/tx/${e.signature}?cluster=devnet`}
-              target="_blank"
-              rel="noreferrer"
-              title={e.signature}
-            >
-              {e.signature.slice(0, 4)}…{e.signature.slice(-4)}
-            </a>{" "}
-            <span className="fine">
-              {e.time ? new Date(e.time * 1000).toLocaleString() : `slot ${e.slot}`}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <div className="table-scroll">
+        <table className="history-table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Amount</th>
+              <th>Transaction hash</th>
+              <th>Date</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((e) => (
+              <tr key={e.signature}>
+                <td>
+                  <span className="badge-ok">{e.kind === "deposit" ? "Vaulted" : "Unvaulted"}</span>
+                </td>
+                <td className="mono">{e.tslax.toFixed(6)} TSLAx</td>
+                <td>
+                  <a
+                    className="fine tx-hash"
+                    href={`https://explorer.solana.com/tx/${e.signature}?cluster=devnet`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={e.signature}
+                  >
+                    {shortSig(e.signature)}
+                  </a>
+                </td>
+                <td className="muted">{fmtDate(e.time ?? null)}</td>
+                <td className="muted">{fmtTime(e.time ?? null)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

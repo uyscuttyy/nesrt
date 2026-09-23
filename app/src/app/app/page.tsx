@@ -11,15 +11,14 @@ import { buildDepositTx, buildWithdrawTx, toBaseUnits, toUiAmount } from "../../
 import Navbar from "@/components/Navbar";
 import { ToastStack } from "@/components/Toasts";
 import OnboardingModal from "@/components/OnboardingModal";
-import HistoryTimeline from "@/components/HistoryTimeline";
 import JupiterZapModal from "@/components/JupiterZapModal";
 import { useVaultData } from "@/hooks/useVaultData";
 
 type ActionTab = "vault" | "unvault" | "zap";
 
 /**
- * NESRT Vault: two metrics, one centered action card with inline forms,
- * recent history. Tagline left, faucet right, no account bar.
+ * NESRT Vault: two metrics, one centered action card with inline forms.
+ * Tagline left, faucet right, no account bar. History lives on Activity.
  */
 export default function VaultPage() {
   const {
@@ -32,7 +31,6 @@ export default function VaultPage() {
     positionValue,
     refresh,
     refreshHistory,
-    history,
     toasts,
     push,
     dismiss,
@@ -323,7 +321,6 @@ export default function VaultPage() {
               )}
             </div>
 
-            <HistoryTimeline events={history} compact />
           </div>
         )}
         {showOnboarding && connected ? (

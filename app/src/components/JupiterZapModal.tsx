@@ -214,34 +214,23 @@ export default function JupiterZapModal({
     return acc ? BigInt(acc.value.amount) : 0n;
   }
 
-  /** Wallet signing wrapper that names the failing step (wallet errors are opaque). */
+  /** Wallet signing wrapper that names the failing step (wallet errors are opaque).
+   * NOTE: no pre-simulation — connection.simulateTransaction throws
+   * "Invalid arguments" for these txs in this environment (proven headlessly),
+   * which masked every real error. Chain + server verification remain. */
   async function signSend(
     step: string,
     tx: Transaction | VersionedTransaction,
     signers?: import("@solana/web3.js").Signer[]
   ): Promise<string> {
-    let simOk = false;
+    let sent = false;
     try {
-      // Simulate first: surfaces program errors + logs instead of an opaque
-      // wallet failure after signing.
-      if (tx instanceof Transaction && !tx.recentBlockhash) {
-        tx.feePayer = tx.feePayer ?? publicKey ?? undefined;
-        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      }
-      const sim = await connection.simulateTransaction(
-        tx as VersionedTransaction,
-        { commitment: "confirmed" }
-      );
-      if (sim.value.err) {
-        const logs = sim.value.logs?.slice(-3).join(" | ") ?? "";
-        throw new Error(`Simulation failed: ${JSON.stringify(sim.value.err)} ${logs}`.slice(0, 200));
-      }
-      simOk = true;
       const sig = await sendTransaction(
         tx,
         connection,
         signers && signers.length > 0 ? { signers } : undefined
       );
+      sent = true;
       await confirmSig(sig);
       return sig;
     } catch (e) {
@@ -250,7 +239,7 @@ export default function JupiterZapModal({
       const raw = e instanceof Error ? e.message : String(e);
       console.error(`[zap:${step}]`, e);
       throw new Error(
-        `${step} failed${simOk ? " at wallet signing" : " before signing"} [${name}${code !== undefined ? `/${String(code)}` : ""}]: ${raw.slice(0, 140)}`
+        `${step} failed${sent ? " after signing" : " before signing"} [${name}${code !== undefined ? `/${String(code)}` : ""}]: ${raw.slice(0, 140)}`
       );
     }
   }

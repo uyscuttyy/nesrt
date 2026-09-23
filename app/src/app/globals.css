@@ -666,6 +666,7 @@ a {
   line-height: 1.35;
   letter-spacing: 0.01em;
   margin: 0.5rem 0 0;
+  text-align: center;
 }
 
 .eyebrow-centered {
@@ -710,6 +711,45 @@ a {
   .metric-duo {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- History table ---- */
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.history-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.history-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.history-table tbody tr:hover {
+  background: var(--overlay);
 }
 
 /* ---- Facts list (vertical stacked cards) ---- */

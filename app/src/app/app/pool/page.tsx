@@ -418,6 +418,23 @@ export default function PoolPage() {
             </div>
           ) : null}
 
+          <div className="card" style={{ marginTop: "1rem" }}>
+            <span className="label">Who can trade here, honestly</span>
+            <p className="muted">
+              The pool is permissionless: anyone technical can quote and swap
+              against it with the SDK. But Meteora&apos;s devnet UI often fails
+              to resolve it, so in practice only Nesrt users get a working
+              door in today. There is no in-app swap yet, so trading means
+              using the Meteora pool page link above. On mainnet this inverts:
+              proper indexing plus aggregator routing would make the pair
+              reachable from every swap frontend.
+            </p>
+            <p className="fine">
+              Devnet reality check: no volume means no fees accrue. This pool
+              exists to prove the full loop (vault, earn, trade), not to earn.
+            </p>
+          </div>
+
           {shownPair ? (
             <div className="card" style={{ marginTop: "1rem" }}>
               <span className="label">LB pair address</span>

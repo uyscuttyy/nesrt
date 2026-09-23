@@ -102,7 +102,7 @@ On-chain: one vault program (14 instructions), one lending program (pool, shares
 | Mock lender v2 | lending pool behind the vault | live, E2E-verified |
 | Pyth (Hermes pull) | TSLAx/USD gate: feed id + 60s + Full verification | code-live, stub-active; Hermes key needed for pull posting |
 | Pyth stub oracle | admin-posted devnet price (24h window) | live (`update_stub_price`) |
-| Meteora DLMM | nTSLA/USDC secondary liquidity | live pair, seeded 10+10, created + seeded in-app |
+| Meteora DLMM | nTSLA/USDC secondary liquidity | live pair, seeded 10+10, created + seeded in-app (see Pool reality below) |
 | Jupiter v6 | SOL/USDC zap swaps (quote → bundle-or-sequential) | wired, activates where routes exist |
 | Helius | Enhanced webhook history feed | endpoint live, delivery needs public URL + key |
 | Squads V4 | multisig admin migration | prepared (`set_admin`), transfer pending |
@@ -141,11 +141,47 @@ npm run build && npx tsc --noEmit         # both must be clean
 
 Current checks: 8 Anchor tests, `cargo build-sbf` × 2, typecheck, lint and `next build` pass.
 
-## 11. Limitations
+## 11. Pool reality (read before demoing the trade)
+
+The pair is permissionless: anyone technical can quote and swap against it
+with the SDK. But Meteora's devnet UI intermittently fails to resolve it —
+the same address renders a full pool page one hour and "No Pool Found" the
+next (witnessed live; the account itself never moved). So in practice today,
+only Nesrt users get a working door in, and there is no in-app swap yet:
+trading means the Meteora pool page link, flakiness included.
+
+![Meteora devnet UI failing to resolve the live pair](docs/images/no-pool-found.png)
+
+Devnet economics follow: no volume means no fees accrue, so the pool proves
+the loop (vault, earn, trade) rather than earning anything. Mainnet inverts
+all of it — proper indexing, aggregator routing, real LP fees — but that
+needs real liquidity, not code.
+
+## 12. Deploying (Vercel)
+
+The app lives in `app/`, so set **Root Directory to `app`** when importing.
+Framework preset Next.js, defaults otherwise (build `next build`, Node 18+).
+
+1. Import the repo, set Root Directory `app`, deploy once to get the URL.
+2. In Project → Settings → Environment Variables, add the publics
+   (`NEXT_PUBLIC_SOLANA_RPC_URL`, `NEXT_PUBLIC_TSLAX_MINT`,
+   `NEXT_PUBLIC_VAULT_PROGRAM_ID`, `NEXT_PUBLIC_MOCK_LENDER_PROGRAM_ID`,
+   `NEXT_PUBLIC_MOCK_LENDER_POOL`, `NEXT_PUBLIC_MOCK_LENDER_SHARES_MINT`,
+   `NEXT_PUBLIC_PYTH_PRICE_FEED`, `NEXT_PUBLIC_LB_PAIR` — values in
+   [`docs/runbook.md`](docs/runbook.md)) plus server secrets
+   (`TSLAX_FAUCET_KEYPAIR` as JSON array, `HELIUS_WEBHOOK_SECRET`,
+   `HERMES_HEADERS_JSON`). Redeploy after saving.
+3. Point the Helius webhook at `https://<your-app>.vercel.app/api/webhooks/helius`
+   (localhost could never receive it) with the same secret. History then
+   streams live instead of RPC polling.
+4. Faucet/crank/zap-mint routes run server-side on Vercel unchanged; nothing
+   in `app/src` references localhost.
+
+## 13. Limitations
 
 Devnet demo, not production. Mock (not Kamino) lending pool. Stub oracle, not Hermes pull (needs API key). No Meteora CPI inside the vault program. Helius delivery needs a public URL. Unaudited contracts. Devnet RPC flakes — the app auto-retries transient failures once. Full list with evidence: [`docs/handoff.md`](docs/handoff.md).
 
-## 12. Repository map
+## 14. Repository map
 
 | Path | Contents |
 |---|---|
@@ -158,7 +194,7 @@ Devnet demo, not production. Mock (not Kamino) lending pool. Stub oracle, not He
 | `tests` | Anchor integration suite (8 tests, devnet) |
 | `docs` | PRD, architecture, handoff, runbook |
 
-## 13. Context
+## 15. Context
 
 Built on Solana devnet, September 2026. Where this repo and older planning docs differ, the repository reflects what was built and verified.
 

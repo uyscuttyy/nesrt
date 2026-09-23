@@ -655,9 +655,17 @@ a {
 
 .tagline {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   line-height: 1.4;
   flex: 1;
+}
+
+.page-title {
+  font-family: "Boldo", ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  margin: 0.5rem 0 0;
 }
 
 .eyebrow-centered {

@@ -121,6 +121,8 @@ export default function VaultPage() {
         publicKey,
         toBaseUnits(parsed)
       );
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       const sig = await sendTransaction(
         tx,
         connection,
@@ -165,6 +167,8 @@ export default function VaultPage() {
         publicKey,
         finalShares
       );
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       const sig = await sendTransaction(
         tx,
         connection,

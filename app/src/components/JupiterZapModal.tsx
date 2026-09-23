@@ -220,6 +220,7 @@ export default function JupiterZapModal({
     tx: Transaction | VersionedTransaction,
     signers?: import("@solana/web3.js").Signer[]
   ): Promise<string> {
+    let simOk = false;
     try {
       // Simulate first: surfaces program errors + logs instead of an opaque
       // wallet failure after signing.
@@ -235,6 +236,7 @@ export default function JupiterZapModal({
         const logs = sim.value.logs?.slice(-3).join(" | ") ?? "";
         throw new Error(`Simulation failed: ${JSON.stringify(sim.value.err)} ${logs}`.slice(0, 200));
       }
+      simOk = true;
       const sig = await sendTransaction(
         tx,
         connection,
@@ -243,8 +245,13 @@ export default function JupiterZapModal({
       await confirmSig(sig);
       return sig;
     } catch (e) {
+      const name = e instanceof Error ? e.name : typeof e;
+      const code = (e as { code?: unknown })?.code;
       const raw = e instanceof Error ? e.message : String(e);
-      throw new Error(`${step} failed: ${raw.slice(0, 160)}`);
+      console.error(`[zap:${step}]`, e);
+      throw new Error(
+        `${step} failed${simOk ? " at wallet signing" : " before signing"} [${name}${code !== undefined ? `/${String(code)}` : ""}]: ${raw.slice(0, 140)}`
+      );
     }
   }
 
@@ -317,31 +324,37 @@ export default function JupiterZapModal({
     const inBase = BigInt(Math.floor(parsed * 10 ** decimals));
     // Step 1: pay treasury.
     setStatus(`Paying ${parsed} ${token} to zap treasury… (approve in Phantom)`);
-    const r = await fetch("/api/zap");
-    if (!r.ok) throw new Error("Zap service unavailable.");
-    const cfg = (await r.json()) as { treasury: string; treasuryUsdcAta: string; usdcMint: string };
-    const treasury = new PublicKey(cfg.treasury);
-    const payTx = new Transaction();
-    if (token === "SOL") {
-      payTx.add(
-        SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: treasury, lamports: inBase })
-      );
-    } else {
-      const mint = new PublicKey(cfg.usdcMint);
-      const userAta = getAssociatedTokenAddressSync(mint, publicKey);
-      const treasuryAta = new PublicKey(cfg.treasuryUsdcAta);
-      // Idempotent create: no existence pre-check RPC that can misfire.
-      payTx.add(
-        createAssociatedTokenAccountIdempotentInstruction(publicKey, treasuryAta, treasury, mint)
-      );
-      payTx.add(
-        createTransferInstruction(userAta, treasuryAta, publicKey, inBase, [], TOKEN_PROGRAM_ID)
-      );
+    let payTx: Transaction;
+    try {
+      const r = await fetch("/api/zap");
+      if (!r.ok) throw new Error("Zap service unavailable.");
+      const cfg = (await r.json()) as { treasury: string; treasuryUsdcAta: string; usdcMint: string };
+      const treasury = new PublicKey(cfg.treasury);
+      payTx = new Transaction();
+      if (token === "SOL") {
+        payTx.add(
+          SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: treasury, lamports: inBase })
+        );
+      } else {
+        const mint = new PublicKey(cfg.usdcMint);
+        const userAta = getAssociatedTokenAddressSync(mint, publicKey);
+        const treasuryAta = new PublicKey(cfg.treasuryUsdcAta);
+        // Idempotent create: no existence pre-check RPC that can misfire.
+        payTx.add(
+          createAssociatedTokenAccountIdempotentInstruction(publicKey, treasuryAta, treasury, mint)
+        );
+        payTx.add(
+          createTransferInstruction(userAta, treasuryAta, publicKey, inBase, [], TOKEN_PROGRAM_ID)
+        );
+      }
+      // Explicit payer + blockhash: the adapter throws opaquely when it must
+      // prepare these itself on multi-instruction token txs.
+      payTx.feePayer = publicKey;
+      payTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      throw new Error(`${token} payment build failed: ${raw.slice(0, 160)}`);
     }
-    // Explicit payer + blockhash: the adapter throws opaquely when it must
-    // prepare these itself on multi-instruction token txs.
-    payTx.feePayer = publicKey;
-    payTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
     const paySig = await signSend(`${token} payment signature`, payTx);
     // Step 2: server verifies + mints TSLAx.
     setStatus("Minting TSLAx at devnet faucet rate…");

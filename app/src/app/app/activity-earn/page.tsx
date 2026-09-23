@@ -17,12 +17,11 @@ import { LB_PAIR_ADDRESS } from "../../../config";
 export default function ActivityEarnPage() {
   const {
     connected,
-    publicKey,
     balances,
     pool,
     rate,
     apy,
-    totalValue,
+    positionValue,
     profit,
     history,
     toasts,
@@ -53,19 +52,14 @@ export default function ActivityEarnPage() {
     <main>
       <Navbar />
       <div className="wrap sanctuary">
-        <p className="eyebrow">Activity &amp; Earn</p>
-        <h1>Growth and trail.</h1>
-        <p className="muted">Earnings on the left tab, evidence on the right. Nothing here moves funds.</p>
+        <p className="eyebrow eyebrow-centered">Activity &amp; Earn</p>
+        <h1 className="tagline-boldo page-title">your on chain growth and trail</h1>
 
         {!connected ? (
           <p className="muted">Connect Phantom to continue. {providerState}.</p>
         ) : (
           <div>
-            <p>
-              <span className="dot" /> {shortKey(publicKey?.toBase58() ?? "")} · Phantom
-            </p>
-
-            <div className="tabs" role="tablist" style={{ marginTop: "1.5rem" }}>
+            <div className="tabs tabs-centered" role="tablist" style={{ marginTop: "1.5rem" }}>
               {(
                 [
                   ["earn", "Earn Overview"],
@@ -89,8 +83,8 @@ export default function ActivityEarnPage() {
                 <div className="cards">
                   <div className="card accent-card">
                     <span className="label">Total Value Locked</span>
-                    <strong>{totalValue === null ? "—" : `${totalValue.toFixed(6)} TSLAx`}</strong>
-                    <span className="fine">Your wallet + vaulted position.</span>
+                    <strong>{positionValue === null ? "—" : `${positionValue.toFixed(6)} TSLAx`}</strong>
+                    <span className="fine">Locked in the vault plus accrued yield. Wallet balance not included.</span>
                   </div>
                   <div className="card">
                     <span className="label">Profit earned</span>
@@ -121,8 +115,13 @@ export default function ActivityEarnPage() {
                   <span className="label">How yield works</span>
                   <p className="muted">
                     Borrow interest is dripped into the pool, raising the price of every
-                    share — 1 nTSLA redeems for more TSLAx over time. The pool&apos;s
+                    share. So 1 nTSLA redeems for more TSLAx over time. The pool&apos;s
                     exchange rate is {rate === null ? "loading" : `${rate.toFixed(6)} TSLAx per nTSLA`}.
+                  </p>
+                  <p className="fine">
+                    Devnet behavior: drips are simulated borrow interest posted by the
+                    protocol crank. On live markets the same slot is filled by real
+                    borrower interest, and this box will say so.
                   </p>
                   <p className="fine">
                     <Link href="/app">Back to Vault →</Link>
@@ -179,7 +178,7 @@ function TradeCard() {
         nTSLA/USDC · 0.25% fee
       </strong>
       <span className="fine">Live DLMM pool on devnet. Swap without unvaulting.</span>
-      <span className="fine">Unverified tokens: Meteora may not load metadata or prices — the pool still works.</span>
+      <span className="fine">Unverified tokens: Meteora may not load metadata or prices, but the pool still works.</span>
       <div className="actions">
         <a
           className="cta"
@@ -204,6 +203,3 @@ function TradeCard() {
   );
 }
 
-function shortKey(key: string): string {
-  return key.length > 12 ? `${key.slice(0, 4)}...${key.slice(-4)}` : key;
-}

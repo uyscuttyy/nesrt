@@ -400,7 +400,7 @@ export default function JupiterZapModal({
           ))}
         </span>
       </div>
-      <div className="actions">
+      <div className="actions actions-centered">
         <input
           className="input"
           type="number"
@@ -411,7 +411,7 @@ export default function JupiterZapModal({
           value={amount}
           onChange={(e) => typeAmount(e.target.value)}
           disabled={busy}
-          style={{ fontSize: "1.15rem", fontWeight: 600 }}
+          style={{ fontSize: "1.15rem", fontWeight: 600, maxWidth: "22rem", textAlign: "center" }}
         />
       </div>
       <div className="card" style={{ marginTop: "1rem" }}>
@@ -425,7 +425,7 @@ export default function JupiterZapModal({
           <span className="fine">Live Jupiter v6 route.</span>
         ) : null}
       </div>
-      <div className="actions">
+      <div className="actions actions-centered">
         <button className="cta" onClick={() => void onZap()} disabled={busy || !quote}>
           {busy ? "Working…" : "Zap & Deposit"}
         </button>

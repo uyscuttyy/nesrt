@@ -226,12 +226,34 @@ export default function JupiterZapModal({
         connection,
         signers && signers.length > 0 ? { signers } : undefined
       );
-      await connection.confirmTransaction(sig, "confirmed");
+      await confirmSig(sig);
       return sig;
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       throw new Error(`${step} failed: ${raw.slice(0, 160)}`);
     }
+  }
+
+  /**
+   * Confirmation with a timeout. Devnet RPC websockets stall: if the wait
+   * exceeds 30s, check the signature status directly instead of hanging
+   * forever with a spinner and no error.
+   */
+  async function confirmSig(sig: string): Promise<void> {
+    const wait = connection.confirmTransaction(sig, "confirmed").then(() => true);
+    const timeout = new Promise<false>((r) => setTimeout(() => r(false), 30_000));
+    if (await Promise.race([wait, timeout])) return;
+    const st = await connection.getSignatureStatus(sig).catch(() => null);
+    const status = st?.value;
+    if (
+      status &&
+      (status.confirmationStatus === "confirmed" ||
+        status.confirmationStatus === "finalized")
+    ) {
+      return;
+    }
+    if (status?.err) throw new Error(`transaction failed on-chain: ${JSON.stringify(status.err)}`);
+    throw new Error("confirmation timed out — check the explorer; do not retry blindly (see history).");
   }
 
   /** Bundle attempt: append deposit ix to the Jupiter swap tx when it fits. */

@@ -6,7 +6,6 @@ import Navbar from "@/components/Navbar";
 import { ToastStack } from "@/components/Toasts";
 import YieldChart from "@/components/YieldChart";
 import HistoryTimeline from "@/components/HistoryTimeline";
-import AppNav from "@/components/AppNav";
 import { useVaultData } from "@/hooks/useVaultData";
 import { deriveAddresses, toUiAmount } from "../../../vault";
 import { LB_PAIR_ADDRESS } from "../../../config";
@@ -65,8 +64,6 @@ export default function ActivityEarnPage() {
             <p>
               <span className="dot" /> {shortKey(publicKey?.toBase58() ?? "")} · Phantom
             </p>
-
-            <AppNav />
 
             <div className="tabs" role="tablist" style={{ marginTop: "1.5rem" }}>
               {(

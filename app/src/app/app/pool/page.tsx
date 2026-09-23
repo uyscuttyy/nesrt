@@ -3,16 +3,13 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import BN from "bn.js";
 import { TSLAX_MINT } from "../../../config";
 import { deriveAddresses } from "../../../vault";
 import { friendlyError } from "../../../errors";
-import ConnectWalletButton from "@/components/ConnectWalletButton";
-import ThemeToggle from "@/components/ThemeToggle";
+import Navbar from "@/components/Navbar";
 import { ToastStack, useToasts } from "@/components/Toasts";
-import AppNav from "@/components/AppNav";
 
 const BIN_STEP = 25;
 const FEE_BPS = 25; // 0.25%
@@ -338,24 +335,16 @@ export default function PoolPage() {
   }
 
   return (
-    <main className="wrap sanctuary">
-      <header className="nav">
-        <Link className="brand" href="/">
-          Nesrt Vault
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <ThemeToggle />
-          <ConnectWalletButton />
-        </div>
-      </header>
-
-      <h1>Liquidity pool</h1>      <p className="muted">
+    <main>
+      <Navbar />
+      <div className="wrap sanctuary">
+      <p className="eyebrow">Pool</p>
+      <h1>Liquidity pool</h1>
+      <p className="muted">
         Creates the nTSLA/USDC DLMM pool with a custom 0.25% fee. Meteora&apos;s UI only offers a
         10% tier for unverified devnet tokens, so this page builds that transaction for your
         Phantom to sign. Add liquidity afterwards on the pool&apos;s Meteora page.
       </p>
-
-      <AppNav />
 
       {!connected ? (
         <p className="muted">Connect Phantom to continue.</p>
@@ -445,6 +434,7 @@ export default function PoolPage() {
         </div>
       )}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
+      </div>
     </main>
   );
 }

@@ -1,33 +1,36 @@
 :root {
-  /* Light mode (default) — deep trust blue system */
-  --bg: #f7f9fc;
+  /* Light mode — paper + deep teal ink */
+  --bg: #f6f8f7;
   --bg-elevated: #ffffff;
-  --band: #e9eef6;
-  --band-hover: #dde6f3;
-  --text: #0f1e33;
-  --muted: #5b6b82;
-  --muted-strong: #3d4c63;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  --band: #e9efec;
+  --band-hover: #dde7e1;
+  --text: #0c1a16;
+  --muted: #57705f;
+  --muted-strong: #3c4f44;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
   --accent-ink: #ffffff;
-  --accent-soft: #dbeafe;
-  --border: #d5e0f0;
-  --border-strong: #bccbe4;
+  --accent-soft: #d7f0ea;
+  --accent-2: #0891b2;
+  --border: #d3e0d8;
+  --border-strong: #0d9488;
   --card-bg: #ffffff;
   --input-bg: #ffffff;
-  --overlay: rgba(15, 30, 51, 0.08);
-  --shadow-sm: 0 1px 2px rgba(15, 30, 51, 0.05);
-  --shadow-md: 0 4px 12px rgba(15, 30, 51, 0.09);
-  --shadow-lg: 0 8px 24px rgba(15, 30, 51, 0.13);
+  --overlay: rgba(12, 26, 22, 0.08);
+  --shadow-sm: 0 1px 2px rgba(12, 26, 22, 0.05);
+  --shadow-md: 0 4px 12px rgba(12, 26, 22, 0.09);
+  --shadow-lg: 0 8px 24px rgba(12, 26, 22, 0.13);
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-full: 999px;
-  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  --focus-ring: 0 0 0 3px rgba(13, 148, 136, 0.35);
+  --glow: 0 0 20px rgba(13, 148, 136, 0.12);
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 [data-theme="dark"] {
-  /* Obsidian sanctuary: graphite glass + electric emerald (dark only — light untouched) */
+  /* Dark ops desk — graphite + restrained teal signal */
   --bg: #0b0e14;
   --bg-elevated: #0e131c;
   --band: #101724;
@@ -35,20 +38,21 @@
   --text: #f8fafc;
   --muted: #94a3b8;
   --muted-strong: #b6c2d4;
-  --accent: #10b981;
-  --accent-hover: #34d399;
+  --accent: #14b8a6;
+  --accent-hover: #5eead4;
   --accent-ink: #04120c;
-  --accent-soft: rgba(16, 185, 129, 0.1);
-  --accent-2: #06b6d4;
+  --accent-soft: rgba(20, 184, 166, 0.1);
+  --accent-2: #22d3ee;
   --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(16, 185, 129, 0.4);
+  --border-strong: rgba(20, 184, 166, 0.4);
   --card-bg: rgba(255, 255, 255, 0.03);
   --input-bg: rgba(255, 255, 255, 0.04);
   --overlay: rgba(3, 5, 9, 0.55);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
-  --glow: 0 0 20px rgba(16, 185, 129, 0.15);
+  --glow: 0 0 20px rgba(20, 184, 166, 0.12);
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 * {

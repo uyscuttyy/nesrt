@@ -31,20 +31,24 @@ type PostBundle = {
 /**
  * Ask our server route to fetch the latest signed TSLAx/USD VAA from Hermes
  * and build the post_update instructions. The heavy Pyth SDKs stay
- * server-side (they don't bundle for the browser). Throws when Hermes is
- * unreachable or requires auth (HTTP 401) — callers fall back to the
- * placeholder path.
+ * server-side (they don't bundle for the browser). Times out fast so a
+ * dead Hermes never hangs a deposit — callers fall back to the stub path.
  */
 export async function fetchAndBuildPriceUpdate(
-  payer: PublicKey
+  payer: PublicKey,
+  timeoutMs = 5000
 ): Promise<PostedUpdate> {
-  const res = await fetch("/api/pyth/post", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ payer: payer.toBase58() }),
-  });
-  const body = (await res.json()) as PostBundle;
-  if (!res.ok) throw new Error(body.error ?? "Price update unavailable.");
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch("/api/pyth/post", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payer: payer.toBase58() }),
+      signal: ctrl.signal,
+    });
+    const body = (await res.json()) as PostBundle;
+    if (!res.ok) throw new Error(body.error ?? "Price update unavailable.");
   return {
     priceUpdateAccount: new PublicKey(body.priceUpdateAccount),
     postInstructions: body.instructions.map(
@@ -63,4 +67,10 @@ export async function fetchAndBuildPriceUpdate(
       ix.signers.map((s) => Keypair.fromSecretKey(Uint8Array.from(s)))
     ),
   };
+} catch (e) {
+  clearTimeout(timer);
+  throw e;
+} finally {
+  clearTimeout(timer);
+}
 }

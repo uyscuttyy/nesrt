@@ -338,8 +338,8 @@ export default function PoolPage() {
     <main>
       <Navbar />
       <div className="wrap sanctuary">
-      <p className="eyebrow">Pool</p>
-      <h1>Liquidity pool</h1>
+      <p className="eyebrow eyebrow-centered">Nesrt Vault · Solana Devnet</p>
+      <h1 className="tagline-boldo page-title">your liquidity pool</h1>
       <p className="muted">
         The shared nTSLA/USDC pool lives here for everyone. Your tokens,
         your balances, and your buttons are yours alone.

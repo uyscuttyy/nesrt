@@ -201,6 +201,33 @@ export default function PoolPage() {
 
   const shownPair = createdPair ?? existingPair;
 
+  const [poolStatus, setPoolStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      if (!shownPair) {
+        setPoolStatus(null);
+        return;
+      }
+      try {
+        const DLMMmod = await import("@meteora-ag/dlmm");
+        const DLMM = resolveDLMM(DLMMmod);
+        const dlmm = await DLMM.create(connection, new PublicKey(shownPair), {
+          cluster: "devnet",
+        } as never);
+        const activeBin: number = dlmm.lbPair?.activeId ?? dlmm.activeBinId;
+        const binStep: number = dlmm.lbPair?.binStep ?? BIN_STEP;
+        setPoolStatus(
+          Number.isFinite(activeBin)
+            ? `Live · bin step ${binStep} · active bin ${activeBin}`
+            : "Live"
+        );
+      } catch {
+        setPoolStatus("Live (details unavailable)");
+      }
+    })();
+  }, [shownPair, connection]);
+
   /** Seed 10 USDC + 10 nTSLA into a Spot position around the active bin. */
   async function onSeed() {
     if (!publicKey || !shownPair) return;
@@ -366,6 +393,14 @@ export default function PoolPage() {
             </button>
           </div>
           {note ? <p className="fine">{note}</p> : null}
+
+          {shownPair ? (
+            <div className="card" style={{ marginTop: "1rem" }}>
+              <span className="label">Pool status</span>
+              <strong>{poolStatus ?? "Checking…"}</strong>
+              <span className="fine">nTSLA/USDC liquidity depth and LP controls live on the Meteora pool page.</span>
+            </div>
+          ) : null}
 
           {shownPair ? (
             <div className="card" style={{ marginTop: "1rem" }}>

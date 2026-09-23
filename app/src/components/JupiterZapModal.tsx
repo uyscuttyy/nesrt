@@ -32,20 +32,27 @@ type ZapQuote =
  * devnet faucet-rate mint via /api/zap. Executes bundled when it fits,
  * otherwise sequential swap-then-deposit.
  */
-export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
+export default function JupiterZapModal({
+  onDone,
+  slippageBps = 100,
+}: {
+  onDone?: () => void;
+  slippageBps?: number;
+}) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
   const [token, setToken] = useState<ZapToken>("SOL");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState<ZapQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
+  const [slippage, setSlippage] = useState(slippageBps);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
   const decimals = token === "SOL" ? 9 : 6;
 
-  async function refreshQuote(nextToken: ZapToken, nextAmount: string) {
+  async function refreshQuote(nextToken: ZapToken, nextAmount: string, nextSlippage: number) {
     setQuote(null);
     setError("");
     const parsed = Number(nextAmount);
@@ -59,7 +66,7 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
       // must NOT skip the devnet fallback below.
       try {
         const q = await fetch(
-          `${JUP_QUOTE_URL}?inputMint=${inputMint}&outputMint=${TSLAX_MINT}&amount=${inBase.toString()}&slippageBps=100`
+          `${JUP_QUOTE_URL}?inputMint=${inputMint}&outputMint=${TSLAX_MINT}&amount=${inBase.toString()}&slippageBps=${nextSlippage}`
         );
         if (q.ok) {
           const body = (await q.json()) as {
@@ -114,12 +121,17 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
 
   function pick(t: ZapToken) {
     setToken(t);
-    void refreshQuote(t, amount);
+    void refreshQuote(t, amount, slippage);
   }
 
   function typeAmount(v: string) {
     setAmount(v);
-    void refreshQuote(token, v);
+    void refreshQuote(token, v, slippage);
+  }
+
+  function pickSlippage(bps: number) {
+    setSlippage(bps);
+    void refreshQuote(token, amount, bps);
   }
 
   async function onZap() {
@@ -335,6 +347,20 @@ export default function JupiterZapModal({ onDone }: { onDone?: () => void }) {
             {t}
           </button>
         ))}
+        <span className="fine" style={{ marginLeft: "auto" }}>
+          Slippage:&nbsp;
+          {[50, 100, 200].map((bps) => (
+            <button
+              key={bps}
+              className={slippage === bps ? "tab tab-active" : "tab"}
+              style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }}
+              onClick={() => pickSlippage(bps)}
+              disabled={busy}
+            >
+              {(bps / 100).toFixed(1)}%
+            </button>
+          ))}
+        </span>
       </div>
       <div className="actions">
         <input

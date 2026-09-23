@@ -8,5 +8,11 @@ const nextConfig = {
       "@pythnetwork/hermes-client",
     ],
   },
+  async redirects() {
+    return [
+      { source: "/app/earn", destination: "/app/activity-earn?tab=earn", permanent: false },
+      { source: "/app/activity", destination: "/app/activity-earn?tab=activity", permanent: false },
+    ];
+  },
 };
 export default nextConfig;

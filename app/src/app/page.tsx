@@ -1,49 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { MOCK_LENDER_POOL, TSLAX_MINT } from "../config";
-import ThemeToggle from "@/components/ThemeToggle";
+import Navbar from "@/components/Navbar";
 
 const steps = [
   {
-    n: "01",
-    title: "Vault TSLAx",
-    body: "One transaction. Your tokens go to work, no pools to pick, no rates to compare.",
+    title: "Deposit TSLAx",
+    body: "One transaction from your wallet. No pools to pick, no rates to compare, no positions to manage.",
   },
   {
-    n: "02",
-    title: "The vault lends it out",
-    body: "The program routes your TSLAx into the Nesrt lending pool on Solana Devnet and holds yield-bearing shares.",
+    title: "Automated CPI Yield Routing",
+    body: "The vault program routes collateral into the lending pool on-chain and prices every share against a live oracle gate.",
   },
   {
-    n: "03",
-    title: "Unvault anytime",
-    body: "Burn your receipt tokens and receive your TSLAx plus whatever the pool earned. No lockups.",
+    title: "Hold nTSLA",
+    body: "Liquid receipt tokens minted 1:1 against pool shares. Earn while holding, trade on Meteora, unvault anytime.",
+  },
+];
+
+const facts = [
+  {
+    title: "100% Backed Collateral",
+    body: "Every nTSLA is a claim on vaulted TSLAx plus accrued yield. Yield is generated without liquidating your underlying price exposure.",
+    metric: "1 nTSLA ≡ pool shares",
+  },
+  {
+    title: "Real-Time On-Chain Verification",
+    body: "Pyth stub oracles and Anchor program state update live. Every deposit, drip, and withdrawal is checkable on the explorer.",
+    metric: "8/8 tests green",
+  },
+  {
+    title: "Secondary Market Liquidity",
+    body: "Exit without unvaulting: swap nTSLA for USDC instantly on the Meteora DLMM pool, then re-enter whenever you like.",
+    metric: "0.25% fee · bin 25",
   },
 ];
 
 export default function Landing() {
   return (
     <main>
-      <header className="wrap nav">
-        <span className="brand">Nesrt Vault</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <ThemeToggle />
-          <span className="badge">Devnet MVP</span>
-        </div>
-      </header>
+      <Navbar />
 
       <section className="wrap hero">
         <p className="kicker">Tokenized equities, working</p>
-        <h1>Put your on-chain stocks to work.</h1>
+        <h1>Unlock Native Yield on Tokenized Stocks.</h1>
         <p className="lede">
-          Why watch numbers across pools when one vault does it for you?
-          Deposit TSLAx once — lending yield accrues, nTSLA stays liquid,
-          withdraw anytime.
+          Deposit TSLAx to earn automated lending yield (~8.5% APY). Receive liquid
+          nTSLA receipt tokens to trade or unvault anytime.
         </p>
         <div className="cta-row">
           <Link className="cta" href="/app">
-            Enter the Vault
+            Enter Vault
           </Link>
         </div>
         <p className="fine">Solana Devnet. Mock asset. Real on-chain mechanics.</p>
@@ -54,8 +61,7 @@ export default function Landing() {
           <h2>How it works</h2>
           <div className="steps">
             {steps.map((s) => (
-              <div className="step" key={s.n}>
-                <span className="step-n">{s.n}</span>
+              <div className="step card" key={s.title}>
                 <h3>{s.title}</h3>
                 <p className="muted">{s.body}</p>
               </div>
@@ -66,23 +72,20 @@ export default function Landing() {
 
       <section className="wrap facts">
         <h2>On-chain facts</h2>
-        <dl>
-          <div>
-            <dt>TSLAx mint</dt>
-            <dd className="mono">{TSLAX_MINT || "not configured"}</dd>
-          </div>
-          <div>
-            <dt>Lending pool</dt>
-            <dd className="mono">{MOCK_LENDER_POOL || "not configured"}</dd>
-          </div>
-          <div>
-            <dt>Network</dt>
-            <dd>Solana Devnet</dd>
-          </div>
-        </dl>
+        <div className="facts-list">
+          {facts.map((f) => (
+            <div className="card fact-row" key={f.title}>
+              <div>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </div>
+              <span className="fact-metric">{f.metric}</span>
+            </div>
+          ))}
+        </div>
         <div className="cta-row">
           <Link className="cta" href="/app">
-            Enter the Vault
+            Enter Vault
           </Link>
         </div>
       </section>

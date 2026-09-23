@@ -27,25 +27,28 @@
 }
 
 [data-theme="dark"] {
-  --bg: #070d1a;
-  --bg-elevated: #0c1526;
-  --band: #101b30;
-  --band-hover: #16233d;
-  --text: #e8eef7;
-  --muted: #8b98ad;
-  --muted-strong: #acb8cc;
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --accent-ink: #071022;
-  --accent-soft: #12294d;
-  --border: #1e2f4d;
-  --border-strong: #2b3f60;
-  --card-bg: #0d1628;
-  --input-bg: #101b30;
-  --overlay: rgba(232, 238, 247, 0.06);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  /* Obsidian sanctuary: graphite glass + electric emerald (dark only — light untouched) */
+  --bg: #0b0e14;
+  --bg-elevated: #0e131c;
+  --band: #101724;
+  --band-hover: #152034;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --muted-strong: #b6c2d4;
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --accent-ink: #04120c;
+  --accent-soft: rgba(16, 185, 129, 0.1);
+  --accent-2: #06b6d4;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(16, 185, 129, 0.4);
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --input-bg: rgba(255, 255, 255, 0.04);
+  --overlay: rgba(3, 5, 9, 0.55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --glow: 0 0 20px rgba(16, 185, 129, 0.15);
 }
 
 * {
@@ -488,6 +491,175 @@ a {
   padding: 0.5rem;
   border-radius: var(--radius-full);
   gap: 0;
+}
+
+/* ---- Sanctuary dark glass (dark theme only; light theme untouched) ---- */
+[data-theme="dark"] .card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+[data-theme="dark"] .card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-strong);
+  box-shadow: var(--glow), var(--shadow-md);
+}
+
+[data-theme="dark"] .accent-card {
+  background: linear-gradient(180deg, var(--accent-soft), transparent 140%);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+/* ---- Persistent navbar ---- */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.navbar-links {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.nav-link {
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-full);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--text);
+}
+
+.nav-link-active {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .navbar-links {
+    gap: 0;
+  }
+  .nav-link {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ---- Metric duo: two equal boxes, collapse on mobile ---- */
+.metric-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 700px) {
+  .metric-duo {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Facts list (vertical stacked cards) ---- */
+.facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.fact-row {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+}
+
+.fact-row h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.fact-row p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.fact-row:hover {
+  transform: scale(1.01) translateY(-2px);
+}
+
+.fact-metric {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ---- Action modal (backdrop dismiss + Esc) ---- */
+.action-modal-title {
+  margin: 0 0 0.25rem;
+}
+
+.action-modal-sub {
+  margin: 0 0 1rem;
+}
+
+/* ---- Status badges ---- */
+.badge-ok {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 0.15rem 0.6rem;
+  white-space: nowrap;
+}
+
+.tx-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
 }
 
 /* Wallet adapter restyle to match theme */

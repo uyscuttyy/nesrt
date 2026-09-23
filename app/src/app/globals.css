@@ -626,6 +626,40 @@ a {
   }
 }
 
+/* ---- Vault display title + tagline row ---- */
+.display {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.tagline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.tagline {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+/* ---- Centered action card ---- */
+.action-centered {
+  text-align: center;
+}
+
+.tabs-centered {
+  justify-content: center;
+  align-self: center;
+}
+
+.actions-centered {
+  justify-content: center;
+}
+
 /* ---- Metric duo: two equal boxes, collapse on mobile ---- */
 .metric-duo {
   display: grid;

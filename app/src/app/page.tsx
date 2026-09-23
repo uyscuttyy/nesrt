@@ -99,9 +99,6 @@ export default function Landing() {
           <Link className="cta" href="/app">
             Enter Vault
           </Link>
-          <Link className="ghost" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }} href="/app/proof">
-            See the proof
-          </Link>
         </div>
         {stats ? (
           <p className="fine mono">

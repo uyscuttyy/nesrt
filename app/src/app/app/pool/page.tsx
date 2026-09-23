@@ -341,25 +341,52 @@ export default function PoolPage() {
       <p className="eyebrow">Pool</p>
       <h1>Liquidity pool</h1>
       <p className="muted">
-        Creates the nTSLA/USDC DLMM pool with a custom 0.25% fee. Meteora&apos;s UI only offers a
-        10% tier for unverified devnet tokens, so this page builds that transaction for your
-        Phantom to sign. Add liquidity afterwards on the pool&apos;s Meteora page.
+        The shared nTSLA/USDC pool lives here for everyone. Your tokens,
+        your balances, and your buttons are yours alone.
       </p>
 
       {!connected ? (
         <p className="muted">Connect Phantom to continue.</p>
       ) : (
         <div>
+          <h2 className="section-title">Your liquidity</h2>
           <div className="cards">
             <div className="card">
-              <span className="label">Base token (nTSLA)</span>
+              <span className="label">You supply (nTSLA)</span>
               <strong className="mono">{shortKey(deriveAddressesSafe())}</strong>
+              <span className="fine">Receipt tokens from your vault position.</span>
             </div>
             <div className="card">
-              <span className="label">Quote token (your USDC)</span>
+              <span className="label">Paired with (your USDC)</span>
               <strong className="mono">{quote ? `${shortKey(quote.mint)} · ${quote.amountUi}` : scanning ? "scanning…" : "—"}</strong>
               <span className="fine">Auto-detected from your wallet (excludes TSLAx/nTSLA).</span>
             </div>
+          </div>
+
+          <h2 className="section-title">How this pool works</h2>
+          <div className="facts-list">
+            <div className="card fact-row">
+              <div>
+                <h3>0.25% fee goes to you</h3>
+                <p>Every swap pays 0.25%, split across liquidity providers. Lower than stock-exchange spreads, and it lands directly in your position.</p>
+              </div>
+            </div>
+            <div className="card fact-row">
+              <div>
+                <h3>Bin step 25 sets the price grid</h3>
+                <p>Prices move in discrete bins 0.25% apart instead of a smooth curve. Your liquidity sits inside bins; trades hop bin to bin.</p>
+              </div>
+            </div>
+            <div className="card fact-row">
+              <div>
+                <h3>Your range can run out</h3>
+                <p>Seeding covers ±10 bins around 1.0. If price leaves your range you end up 100% in one token and stop earning until it returns. Withdraw and re-seed to follow it.</p>
+              </div>
+            </div>
+          </div>
+
+          <h2 className="section-title">Shared pool facts</h2>
+          <div className="cards">
             <div className="card">
               <span className="label">Pool parameters</span>
               <strong>

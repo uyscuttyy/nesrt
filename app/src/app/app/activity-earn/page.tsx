@@ -59,7 +59,7 @@ export default function ActivityEarnPage() {
           <p className="muted">Connect Phantom to continue. {providerState}.</p>
         ) : (
           <div>
-            <div className="tabs tabs-centered" role="tablist" style={{ marginTop: "1.5rem" }}>
+            <div className="tabs tabs-centered" role="tablist" style={{ marginTop: "1.5rem", alignSelf: "center" }}>
               {(
                 [
                   ["earn", "Earn Overview"],

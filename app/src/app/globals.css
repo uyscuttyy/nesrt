@@ -669,6 +669,12 @@ a {
   text-align: center;
 }
 
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 2rem 0 0;
+}
+
 .eyebrow-centered {
   text-align: center;
 }
@@ -686,11 +692,6 @@ a {
 /* ---- Centered action card ---- */
 .action-centered {
   text-align: center;
-}
-
-.tabs-centered {
-  justify-content: center;
-  align-self: center;
 }
 
 .actions-centered {
@@ -1157,6 +1158,16 @@ a {
   padding: 0.25rem;
   gap: 0.25rem;
   align-self: flex-start;
+}
+
+/* Centered tab switcher: equal space left and right */
+.tabs-centered {
+  display: flex;
+  justify-content: center;
+  align-self: center;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .tab {

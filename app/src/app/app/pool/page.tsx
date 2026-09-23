@@ -189,7 +189,7 @@ export default function PoolPage() {
           : "";
       console.error("[pool]", e);
       // Show the raw message too so it can be pasted back for debugging.
-      setNote(`Failed: ${raw.slice(0, 300)}${stack ? ` — ${stack}` : ""}`);
+      setNote(`Failed: ${raw.slice(0, 300)}${stack ? `: ${stack}` : ""}`);
       push(friendlyError(e));
     } finally {
       setBusy(false);

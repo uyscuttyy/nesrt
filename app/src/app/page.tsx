@@ -14,11 +14,11 @@ type PoolStats = {
 const faqs = [
   {
     q: "What does Pool yield actually mean?",
-    a: "Lifetime yield sitting in the pool divided by total deposits — read live from the pool account on every refresh. It is not an annualized Wall Street APY, and it dilutes when big deposits land. The dashboard prints the exact division so you can check it.",
+    a: "Lifetime yield sitting in the pool divided by total deposits, read live from the pool account on every refresh. It is not an annualized Wall Street APY, and it dilutes when big deposits land. The dashboard prints the exact division so you can check it.",
   },
   {
     q: "Is my principal at risk when I unvault?",
-    a: "No. The 10% performance fee applies to yield only — principal is never skimmed. Unvaulting returns your share of deposits plus 90% of its yield.",
+    a: "No. The 10% performance fee applies to yield only. Principal is never skimmed. Unvaulting returns your share of deposits plus 90% of its yield.",
   },
   {
     q: "What is nTSLA?",
@@ -30,7 +30,7 @@ const faqs = [
   },
   {
     q: "Is this real money?",
-    a: "No. Devnet mock assets with no value. The mechanics — custody, CPI routing, fee math, oracle gating — are real.",
+    a: "No. Devnet mock assets with no value. The mechanics (custody, CPI routing, fee math, oracle gating) are real.",
   },
 ];
 
@@ -144,7 +144,7 @@ export default function Landing() {
           <div className="card fact-row">
             <div>
               <h3>Every number is checkable</h3>
-              <p>Pool totals, oracle prices, fee transfers, and history all live on-chain. The dashboard prints the math it uses — verify any of it.</p>
+              <p>Pool totals, oracle prices, fee transfers, and history all live on-chain. The dashboard prints the math it uses, so verify any of it.</p>
             </div>
             <span className="fact-metric">8/8 tests green</span>
           </div>

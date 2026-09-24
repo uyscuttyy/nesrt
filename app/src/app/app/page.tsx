@@ -94,7 +94,7 @@ export default function VaultPage() {
       const transient =
         retries > 0 &&
         !/confirm/i.test(msg) &&
-        (/blockhash|expired|timeout|429|rate.?limit|simulation failed|failed to fetch/i.test(msg));
+        (/blockhash|expired|timeout|429|rate.?limit|simulation failed|failed to fetch|not found|stale/i.test(msg));
       if (transient) {
         await new Promise((r) => setTimeout(r, 1200));
         setBusy(false);

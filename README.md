@@ -4,6 +4,8 @@
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Network: Solana Devnet](https://img.shields.io/badge/network-Solana%20devnet-brightgreen) ![Tests: 8/8](https://img.shields.io/badge/tests-8%2F8-success) ![Status: live](https://img.shields.io/badge/status-live%20on%20devnet-success)
 
+**Live app:** https://nesrt-mu.vercel.app · **Demo video:** https://youtu.be/TbV7kKW9zPE
+
 ---
 
 ## 1. Product
@@ -18,7 +20,7 @@ connect Phantom → faucet TSLAx → Vault (or Zap SOL/USDC) → nTSLA minted 1:
 
 Nesrt is a single-asset yield vault with a Pyth-gated front door and a liquid receipt token. It is not a DEX, not a borrow/lend frontend, and not an investment product — balances here are mock assets for testing.
 
-Product pages: `/` (landing), `/app` (Sanctuary dashboard), `/app/pool` (pool creator + seeder).
+Product pages: `/` (landing), `/app` (Vault: deposit/withdraw/zap), `/app/activity-earn` (Earn + Activity tabs), `/app/pool` (pool creator, seeder, status).
 
 ## 2. Why it exists
 
@@ -34,14 +36,18 @@ Tokenized equities sit idle in wallets earning 0%. Their holders are typically n
 | Zap-In | Jupiter v6 quote/swap (atomic bundle or sequential) or devnet faucet-rate mint → auto-deposit | `app/src/components/JupiterZapModal.tsx`, `app/src/app/api/zap/route.ts` |
 | Yield | Admin `drip_yield` raises the share price; dashboard shows live `accrued ÷ deposited` | `programs/mock_lender/src/lib.rs:drip_yield`, `app/src/yield.ts` |
 | Withdraw | Burn nTSLA → redeem principal + yield → 10% fee to treasury → user paid | `programs/vault/src/lib.rs:withdraw` |
-| Trade | nTSLA/USDC DLMM pair, dashboard Trade card | `app/src/app/app/page.tsx:TradeCard` |
+| Trade | nTSLA/USDC DLMM pair, Activity tab Trade card | `app/src/app/app/activity-earn/page.tsx:TradeCard` |
 | History | Webhook-first event feed with RPC fallback | `app/src/history.ts`, `app/src/app/api/webhooks/helius/route.ts` |
 
 Full design: [`docs/architecture.md`](docs/architecture.md). Requirements + status: [`docs/prd.md`](docs/prd.md). Engineering log: [`docs/handoff.md`](docs/handoff.md). Ops commands: [`docs/runbook.md`](docs/runbook.md).
 
 ## 4. Live product
 
-Devnet only. Connect Phantom (Devnet mode) at the app, fund via faucet, Vault any amount:
+Devnet only. Live at **https://nesrt-mu.vercel.app** — connect Phantom
+(Devnet mode), fund via faucet, Vault any amount. Demo walkthrough:
+**https://youtu.be/TbV7kKW9zPE**.
+
+To run locally:
 
 ```bash
 cd app && npm install && npm run dev   # http://localhost:3000
@@ -187,7 +193,7 @@ Devnet demo, not production. Mock (not Kamino) lending pool. Stub oracle, not He
 |---|---|
 | `programs/vault` | Anchor vault program (deposit/withdraw/fee/gates/admin) |
 | `programs/mock_lender` | Anchor lending pool (pool, shares, drip) |
-| `app/src/app` | Landing `/`, dashboard `/app`, pool studio `/app/pool`, API routes |
+| `app/src/app` | Landing `/`, Vault `/app`, Earn+Activity `/app/activity-earn`, pool studio `/app/pool`, API routes |
 | `app/src/components` | Wallet, toasts, theme, charts, onboarding, zap modal |
 | `app/src` | `vault.ts`/`yield.ts`/`history.ts`/`errors.ts`/`pyth.ts`/`config.ts` data layer |
 | `scripts` | Pool/custody/admin/devnet-crank helpers |
